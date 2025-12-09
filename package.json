@@ -5,15 +5,11 @@
     "version": "0.0.1",
     "repository": "https://github.com/jamescarruthers/OWL-Ontology-Visualizer",
     "engines": {
-        "vscode": "^1.74.0"
+        "vscode": "^1.75.0"
     },
     "categories": [
         "Visualization",
         "Other"
-    ],
-    "activationEvents": [
-        "onLanguage:owl",
-        "onCommand:owl-visualizer.visualize"
     ],
     "main": "./out/extension.js",
     "contributes": {
@@ -64,6 +60,7 @@
             }
         ]
     },
+
 "scripts": {
     "vscode:prepublish": "npm run compile && npm run copy-assets",
     "compile": "tsc -p ./",
