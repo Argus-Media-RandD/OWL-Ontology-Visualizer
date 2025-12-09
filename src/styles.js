@@ -127,10 +127,22 @@ const OWL_VISUALIZATION_STYLES = [
             'target-arrow-color': '#FF8800'
         }
     },
+
+    // Instance relationships (gold)
+    {
+        selector: 'edge[type = "type"]',
+        style: {
+            'line-color': '#E8B600',
+            'target-arrow-color': '#E8B600',
+            'line-style': 'dashed',
+            'width': 3,
+            'arrow-scale': 1.4
+        }
+    },
     
     // Default/unknown relationship types (gray)
     {
-        selector: 'edge[type != "subClassOf"][type != "subPropertyOf"][type != "domain"][type != "range"]',
+        selector: 'edge[type != "subClassOf"][type != "subPropertyOf"][type != "domain"][type != "range"][type != "type"]',
         style: {
             'line-color': '#888888',
             'target-arrow-color': '#888888'

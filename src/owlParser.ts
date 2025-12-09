@@ -335,6 +335,99 @@ export class OWLParser {
             });
         });
 
+        // Add connectors from classes to individual instances via rdf:type relationships
+        const classUris = new Set<string>();
+        nodes.forEach(node => {
+            if (node.type === 'class' && node.uri) {
+                classUris.add(node.uri);
+            }
+        });
+
+        console.log('OWL Parser: Prepared', classUris.size, 'class URIs for instance linking');
+
+        const builtinTypeNamespaces = [
+            'http://www.w3.org/1999/02/22-rdf-syntax-ns#',
+            'http://www.w3.org/2000/01/rdf-schema#',
+            'http://www.w3.org/2002/07/owl#'
+        ];
+
+        const typeQuads = this.store.getQuads(null, 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type', null, null);
+        console.log('OWL Parser: Scanning', typeQuads.length, 'rdf:type statements for instances');
+
+        const typeEdgeKeys = new Set<string>();
+        let instanceEdgeCount = 0;
+
+        typeQuads.forEach(quad => {
+            if (quad.subject.termType !== 'NamedNode' || quad.object.termType !== 'NamedNode') {
+                return;
+            }
+
+            const individualUri = quad.subject.value;
+            const classUri = quad.object.value;
+
+            const isKnownClass = classUris.has(classUri) || !builtinTypeNamespaces.some(ns => classUri.startsWith(ns));
+            if (!isKnownClass) {
+                return;
+            }
+
+            const individualId = this.getLocalName(individualUri);
+            const classId = this.getLocalName(classUri);
+
+            const existingNode = nodes.get(individualId);
+            if (existingNode && existingNode.type !== 'individual') {
+                return;
+            }
+
+            if (!nodes.has(individualId)) {
+                nodes.set(individualId, {
+                    id: individualId,
+                    label: this.getLabel(quad.subject) || individualId,
+                    type: 'individual',
+                    uri: individualUri
+                });
+            } else {
+                const individualNode = nodes.get(individualId)!;
+                if (!individualNode.uri) {
+                    individualNode.uri = individualUri;
+                }
+                if (!individualNode.label || individualNode.label === individualId) {
+                    const nodeLabel = this.getLabel(quad.subject);
+                    if (nodeLabel) {
+                        individualNode.label = nodeLabel;
+                    }
+                }
+            }
+
+            if (!nodes.has(classId)) {
+                nodes.set(classId, {
+                    id: classId,
+                    label: this.getLabel(quad.object) || classId,
+                    type: 'class',
+                    uri: classUri
+                });
+            }
+
+            classUris.add(classUri);
+
+            const edgeKey = `${classId}->${individualId}`;
+            if (typeEdgeKeys.has(edgeKey)) {
+                return;
+            }
+            typeEdgeKeys.add(edgeKey);
+
+            edges.push({
+                id: `edge_${edgeCounter++}`,
+                source: individualId,
+                target: classId,
+                label: 'instanceOf',
+                type: 'type'
+            });
+
+            instanceEdgeCount++;
+        });
+
+        console.log('OWL Parser: Added', instanceEdgeCount, 'individual-to-class instance relationships');
+
         console.log('OWL Parser: Final result - nodes:', nodes.size, 'edges:', edges.length);
         console.log('OWL Parser: Node breakdown:', {
             classes: Array.from(nodes.values()).filter(n => n.type === 'class').length,
