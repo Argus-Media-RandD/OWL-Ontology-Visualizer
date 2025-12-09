@@ -298,16 +298,16 @@ export class OWLParser {
                 return;
             }
 
-            const sourceId = this.getLocalName(quad.subject.value);
-            const targetId = this.getLocalName(quad.object.value);
+            const propertyId = this.getLocalName(quad.subject.value);
+            const domainClassId = this.getLocalName(quad.object.value);
 
-            this.ensureNode(nodes, sourceId, quad.subject.value, 'property');
-            this.ensureNode(nodes, targetId, quad.object.value, 'class');
+            this.ensureNode(nodes, propertyId, quad.subject.value, 'property');
+            this.ensureNode(nodes, domainClassId, quad.object.value, 'class');
 
             edges.push({
                 id: `edge_${edgeCounter++}`,
-                source: sourceId,
-                target: targetId,
+                source: domainClassId,
+                target: propertyId,
                 label: 'domain',
                 type: 'domain'
             });
