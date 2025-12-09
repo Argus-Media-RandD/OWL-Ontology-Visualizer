@@ -193,6 +193,8 @@ export class VisualizationPanel {
     <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
     <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
     <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+    <script src="https://unpkg.com/klayjs@0.4.1/klay.js"></script>
+    <script src="https://unpkg.com/cytoscape-klay@3.1.4/cytoscape-klay.js"></script>
     <script src="https://unpkg.com/cytoscape-svg@0.4.0/cytoscape-svg.js"></script>
     <script src="${stylesUri}"></script>
     <style>
@@ -333,6 +335,7 @@ export class VisualizationPanel {
             <div id="controls">
                 <select id="layoutSelect">
                     <option value="dagre">Hierarchical (Dagre)</option>
+                    <option value="klay">Hierarchical (Klay)</option>
                     <option value="circle">Circle</option>
                     <option value="grid">Grid</option>
                     <option value="cose">Force-directed (CoSE)</option>
@@ -355,6 +358,8 @@ export class VisualizationPanel {
             <div>Classes: <span id="classCount">0</span></div>
             <div>Properties: <span id="propertyCount">0</span></div>
             <div>Individuals: <span id="individualCount">0</span></div>
+            <div>SKOS Concepts: <span id="skosConceptCount">0</span></div>
+            <div>Concept Schemes: <span id="skosConceptSchemeCount">0</span></div>
             <div>Relations: <span id="edgeCount">0</span></div>
         </div>
         
@@ -382,6 +387,9 @@ export class VisualizationPanel {
                 
                 console.log('Creating Cytoscape instance...');
 
+                let dagreAvailable = false;
+                let klayAvailable = false;
+
                 if (typeof cytoscapeSvg !== 'undefined') {
                     try {
                         cytoscape.use(cytoscapeSvg);
@@ -391,7 +399,104 @@ export class VisualizationPanel {
                 } else {
                     console.warn('cytoscape-svg extension not detected; SVG export will be disabled');
                 }
-                
+
+                if (typeof cytoscapeDagre !== 'undefined') {
+                    try {
+                        cytoscape.use(cytoscapeDagre);
+                        dagreAvailable = true;
+                    } catch (error) {
+                        console.warn('Failed to register cytoscape-dagre extension via use call:', error);
+                    }
+                } else {
+                    console.warn('cytoscape-dagre global not detected; dagre registration skipped');
+                }
+
+                if (typeof cytoscapeKlay !== 'undefined') {
+                    try {
+                        cytoscape.use(cytoscapeKlay);
+                        klayAvailable = true;
+                    } catch (error) {
+                        console.warn('Failed to register cytoscape-klay extension via use call:', error);
+                    }
+                } else {
+                    console.warn('cytoscape-klay global not detected; klay registration skipped');
+                }
+
+                if (typeof cytoscape.extension === 'function') {
+                    dagreAvailable = dagreAvailable || Boolean(cytoscape.extension('layout', 'dagre'));
+                    klayAvailable = klayAvailable || Boolean(cytoscape.extension('layout', 'klay'));
+                }
+
+                if (!dagreAvailable) {
+                    console.warn('cytoscape-dagre layout extension not detected; dagre layout may be unavailable');
+                }
+                if (!klayAvailable) {
+                    console.warn('cytoscape-klay layout extension not detected; klay layout will fallback to dagre');
+                }
+
+                function buildLayoutOptions(layoutName, nodeCount) {
+                    switch (layoutName) {
+                        case 'dagre':
+                            return {
+                                name: 'dagre',
+                                directed: true,
+                                padding: 30,
+                                spacingFactor: 1.2,
+                                rankDir: 'TB'
+                            };
+                        case 'klay':
+                            if (!klayAvailable) {
+                                console.warn('Klay layout requested but unavailable; falling back to dagre');
+                                return buildLayoutOptions('dagre', nodeCount);
+                            }
+                            return {
+                                name: 'klay',
+                                nodeDimensionsIncludeLabels: true,
+                                padding: 40,
+                                animate: false,
+                                klay: {
+                                    direction: 'DOWN',
+                                    spacing: 80,
+                                    borderSpacing: 25,
+                                    inLayerSpacingFactor: 1.2,
+                                    edgeRouting: 'ORTHOGONAL'
+                                }
+                            };
+                        case 'circle':
+                            return {
+                                name: 'circle',
+                                padding: 30,
+                                radius: 200
+                            };
+                        case 'grid':
+                            return {
+                                name: 'grid',
+                                padding: 30,
+                                rows: Math.ceil(Math.sqrt(nodeCount))
+                            };
+                        case 'cose':
+                            return {
+                                name: 'cose',
+                                padding: 30,
+                                nodeRepulsion: 400000,
+                                idealEdgeLength: 100,
+                                edgeElasticity: 100
+                            };
+                        case 'breadthfirst':
+                            return {
+                                name: 'breadthfirst',
+                                padding: 30,
+                                directed: true,
+                                spacingFactor: 1.5
+                            };
+                        default:
+                            return {
+                                name: layoutName,
+                                padding: 30
+                            };
+                    }
+                }
+
                 const cy = cytoscape({
                     container: document.getElementById('cy'),
                     
@@ -418,13 +523,7 @@ export class VisualizationPanel {
                     // Use the external styling configuration
                     style: OWL_VISUALIZATION_STYLES,
                     
-                    layout: {
-                        name: 'dagre',
-                        directed: true,
-                        padding: 30,
-                        spacingFactor: 1.2,
-                        rankDir: 'TB'
-                    }
+                    layout: buildLayoutOptions('dagre', ontologyData.nodes.length)
                 });
                 
                 console.log('Cytoscape instance created successfully');
@@ -458,58 +557,28 @@ export class VisualizationPanel {
                     }
                 });
                 
-                document.getElementById('layoutSelect').addEventListener('change', function() {
-                    const layout = this.value;
-                    window.currentLayout = layout;
-                    let layoutOptions = { name: layout, padding: 30 };
-                    
-                    switch(layout) {
-                        case 'dagre':
-                            layoutOptions = {
-                                name: 'dagre',
-                                directed: true,
-                                padding: 30,
-                                spacingFactor: 1.2,
-                                rankDir: 'TB'
-                            };
-                            break;
-                        case 'circle':
-                            layoutOptions = {
-                                name: 'circle',
-                                padding: 30,
-                                radius: 200
-                            };
-                            break;
-                        case 'grid':
-                            layoutOptions = {
-                                name: 'grid',
-                                padding: 30,
-                                rows: Math.ceil(Math.sqrt(ontologyData.nodes.length))
-                            };
-                            break;
-                        case 'cose':
-                            layoutOptions = {
-                                name: 'cose',
-                                padding: 30,
-                                nodeRepulsion: 400000,
-                                idealEdgeLength: 100,
-                                edgeElasticity: 100
-                            };
-                            break;
-                        case 'breadthfirst':
-                            layoutOptions = {
-                                name: 'breadthfirst',
-                                padding: 30,
-                                directed: true,
-                                spacingFactor: 1.5
-                            };
-                            break;
+                const layoutSelect = document.getElementById('layoutSelect');
+                if (layoutSelect) {
+                    const klayOption = layoutSelect.querySelector('option[value="klay"]');
+                    if (klayOption) {
+                        klayOption.disabled = !klayAvailable;
+                        klayOption.textContent = klayAvailable ? 'Hierarchical (Klay)' : 'Hierarchical (Klay unavailable)';
                     }
+                }
+
+                if (layoutSelect) {
+                    layoutSelect.addEventListener('change', function() {
+                        const requestedLayout = this.value;
+                        const layoutOptions = buildLayoutOptions(requestedLayout, cy.nodes().length);
+                        window.currentLayout = layoutOptions.name;
+                        if (layoutSelect.value !== layoutOptions.name) {
+                            layoutSelect.value = layoutOptions.name;
+                        }
+                        cy.layout(layoutOptions).run();
+                    });
                     
-                    cy.layout(layoutOptions).run();
-                });
-                
-                document.getElementById('layoutSelect').value = window.currentLayout || 'dagre';
+                    layoutSelect.value = window.currentLayout || 'dagre';
+                }
                 
                 window.fitGraph = function() {
                     cy.fit();
@@ -525,53 +594,12 @@ export class VisualizationPanel {
                     
                     // Get current layout
                     const currentLayout = window.currentLayout || 'dagre';
-                    let layoutOptions = { name: currentLayout, padding: 30 };
-                    
-                    // Set layout options based on current layout type
-                    switch(currentLayout) {
-                        case 'dagre':
-                            layoutOptions = {
-                                name: 'dagre',
-                                directed: true,
-                                padding: 30,
-                                spacingFactor: 1.2,
-                                rankDir: 'TB'
-                            };
-                            break;
-                        case 'circle':
-                            layoutOptions = {
-                                name: 'circle',
-                                padding: 30,
-                                radius: 200
-                            };
-                            break;
-                        case 'grid':
-                            layoutOptions = {
-                                name: 'grid',
-                                padding: 30,
-                                rows: Math.ceil(Math.sqrt(cy.nodes().length))
-                            };
-                            break;
-                        case 'cose':
-                            layoutOptions = {
-                                name: 'cose',
-                                padding: 30,
-                                nodeRepulsion: 400000,
-                                idealEdgeLength: 100,
-                                edgeElasticity: 100
-                            };
-                            break;
-                        case 'breadthfirst':
-                            layoutOptions = {
-                                name: 'breadthfirst',
-                                padding: 30,
-                                directed: true,
-                                spacingFactor: 1.5
-                            };
-                            break;
+                    const layoutOptions = buildLayoutOptions(currentLayout, cy.nodes().length);
+                    window.currentLayout = layoutOptions.name;
+                    if (layoutSelect && layoutSelect.value !== window.currentLayout) {
+                        layoutSelect.value = window.currentLayout;
                     }
-                    
-                    // Force re-layout and fit to view
+
                     const layout = cy.layout(layoutOptions);
                     layout.run();
                     
@@ -582,7 +610,7 @@ export class VisualizationPanel {
                         }, 100);
                     });
                     
-                    console.log('Diagram redraw triggered with layout:', currentLayout);
+                    console.log('Diagram redraw triggered with layout:', window.currentLayout);
                 };
 
                 window.exportSvg = function() {
@@ -652,6 +680,8 @@ export class VisualizationPanel {
                     document.getElementById('classCount').textContent = stats.class || 0;
                     document.getElementById('propertyCount').textContent = stats.property || 0;
                     document.getElementById('individualCount').textContent = stats.individual || 0;
+                    document.getElementById('skosConceptCount').textContent = stats.skosConcept || 0;
+                    document.getElementById('skosConceptSchemeCount').textContent = stats.skosConceptScheme || 0;
                     document.getElementById('edgeCount').textContent = ontologyData.edges.length;
                 }
                 
@@ -723,11 +753,13 @@ export class VisualizationPanel {
                     const totalNodes = cy.nodes().length;
                     if (positionsRestored < totalNodes * 0.8) {
                         console.log('Running layout for new nodes...');
-                        const layout = cy.layout({
-                            name: window.currentLayout || 'dagre',
-                            animate: false,
-                            padding: 30
-                        });
+                        const layoutOptions = buildLayoutOptions(window.currentLayout || 'dagre', totalNodes);
+                        layoutOptions.animate = false;
+                        window.currentLayout = layoutOptions.name;
+                        if (layoutSelect && layoutSelect.value !== window.currentLayout) {
+                            layoutSelect.value = window.currentLayout;
+                        }
+                        const layout = cy.layout(layoutOptions);
                         layout.run();
                         
                         layout.on('layoutstop', function() {
@@ -749,6 +781,8 @@ export class VisualizationPanel {
                     document.getElementById('classCount').textContent = stats.class || 0;
                     document.getElementById('propertyCount').textContent = stats.property || 0;
                     document.getElementById('individualCount').textContent = stats.individual || 0;
+                    document.getElementById('skosConceptCount').textContent = stats.skosConcept || 0;
+                    document.getElementById('skosConceptSchemeCount').textContent = stats.skosConceptScheme || 0;
                     document.getElementById('edgeCount').textContent = newOntologyData.edges.length;
                     
                     console.log('Visualization updated successfully');

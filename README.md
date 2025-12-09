@@ -7,11 +7,11 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 - **🎨 Theme-Aware Visualization**: Automatically adapts to VS Code's current theme (light/dark/high contrast)
 - **🔄 Real-Time Auto-Updates**: Automatically refreshes visualization when you save changes to your ontology files
 - **📊 Interactive Graph Visualization**: View your OWL ontologies as interactive node-link diagrams
-- **🎛️ Multiple Layout Options**: Choose from hierarchical, circular, grid, force-directed, and breadth-first layouts
+- **🎛️ Multiple Layout Options**: Choose from hierarchical (Dagre), tidy hierarchical (Klay), circular, grid, force-directed, and breadth-first layouts
 - **🎯 Visual Node Differentiation**: Clear distinction between classes (green rectangles), properties (blue diamonds), and individuals (orange circles)
 - **🔗 Relationship Visualization**: Clear representation of subClassOf, subPropertyOf, domain, and range relationships
 - **👆 Interactive Exploration**: Click on nodes to view detailed information with URI and metadata
-- **📈 Real-Time Statistics**: Live display of ontology metrics (classes, properties, individuals, relationships)
+- **📈 Real-Time Statistics**: Live display of ontology metrics (classes, properties, individuals, SKOS concepts, concept schemes, relationships)
 - **🖱️ Smooth Navigation**: Zoom, pan, and layout controls with view state preservation during updates
 - **📚 SKOS Taxonomy Support**: Visualizes SKOS ConceptSchemes, Concepts, and their property relationships
 
@@ -46,7 +46,7 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 
 ### Controls & Navigation
 
-- **Layout Selector**: Change between different graph layout algorithms
+- **Layout Selector**: Change between different graph layout algorithms, including a tidy hierarchical (Klay) option that reduces edge crossings
 - **Fit to View**: Automatically zoom and center the entire graph
 - **Reset Zoom**: Return to default zoom level and center
 - **Node Selection**: Click any node to view its details (type, URI, properties)
