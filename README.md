@@ -32,11 +32,7 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 ### Local VSIX Install
 
 1. In the project directory run `npm install`
-2. Build once with `npm run compile`
-3. Install VSCE if needed: `npm install -g @vscode/vsce`
-4. Package the extension: `vsce package`
-5. Install the VSIX into VS Code using either the command line `code --install-extension ./owl-ontology-visualizer-<version>.vsix` or the Command Palette action **Extensions: Install from VSIX...**
-    - Alternatively run `npm run deploy` (requires the `code` CLI) to package and install in one step
+2. Execute `npm run deploy` (requires the `code` CLI) to compile, package, and install the VSIX in a single step
 
 ## 📖 Usage
 
@@ -103,9 +99,10 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 ### Building
 
 ```bash
-npm install        # Install dependencies
-npm run compile    # Build TypeScript
-npm run watch      # Watch for changes during development
+npm install          # Install dependencies
+npm run compile      # Build TypeScript
+npm run watch        # Watch for changes during development
+npm run deploy       # Compile, package, and install the VSIX locally
 ```
 
 ### Testing
@@ -135,10 +132,7 @@ For detailed styling options, see the [Styling Guide](STYLING.md).
 
 ### Packaging
 
-```bash
-npm install -g vsce
-vsce package
-```
+Use the `deploy` script described above; it handles packaging and installation in one command.
 
 ## 🔧 Technical Details
 
