@@ -83,8 +83,7 @@ export class VisualizationPanel {
         const defaultFileName = message.fileName && message.fileName.endsWith('.svg')
             ? message.fileName
             : `owl-visualization-${new Date().toISOString().replace(/[:.]/g, '-')}.svg`;
-
-        const defaultUri = vscode.Uri.file(path.join(os.homedir(), defaultFileName));
+        const defaultUri = await this.getDefaultDownloadUri(defaultFileName);
 
         try {
             const targetUri = await vscode.window.showSaveDialog({
@@ -120,6 +119,25 @@ export class VisualizationPanel {
 
             vscode.window.showErrorMessage(`Failed to export SVG: ${error instanceof Error ? error.message : String(error)}`);
         }
+    }
+
+    private async getDefaultDownloadUri(fileName: string): Promise<vscode.Uri> {
+        const downloadsPath = path.join(os.homedir(), 'Downloads');
+        const directory = await this.getExistingDirectory(downloadsPath);
+        return vscode.Uri.file(path.join(directory, fileName));
+    }
+
+    private async getExistingDirectory(preferredPath: string): Promise<string> {
+        try {
+            const stat = await vscode.workspace.fs.stat(vscode.Uri.file(preferredPath));
+            if (stat && stat.type === vscode.FileType.Directory) {
+                return preferredPath;
+            }
+        } catch (error) {
+            // Directory doesn't exist or can't be accessed; fall through to default
+        }
+
+        return os.homedir();
     }
 
     private updateVisualizationData(ontologyData: OntologyData) {
