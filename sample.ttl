@@ -1,7 +1,9 @@
+@prefix : <file:///Users/patrick.johnston/Projects/ontology/OWL-Ontology-Visualizer/sample.ttl#> .
+@prefix ex: <http://example.org/animals#> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
 @prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
-@prefix owl: <http://www.w3.org/2002/07/owl#> .
-@prefix ex: <http://example.org/animals#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
 
 # Ontology Declaration
 <http://example.org/animals> rdf:type owl:Ontology ;
@@ -103,9 +105,38 @@ ex:Ocean rdf:type owl:Class ;
 ex:Buddy rdf:type ex:Dog , owl:NamedIndividual ;
     rdfs:label "Buddy" ;
     ex:age 5 ;
-    ex:weight 25.5 .
+    ex:weight 25.5 ;
+    ex:usedAs ex:pet, ex:guard .
 
 ex:Whiskers rdf:type ex:Cat , owl:NamedIndividual ;
     rdfs:label "Whiskers" ;
     ex:age 3 ;
-    ex:weight 4.2 .
+    ex:weight 4.2 ;
+    ex:usedAs ex:pet .
+
+# Usage taxonomy
+ex:usedAs a owl:ObjectProperty ;
+    rdfs:label "used as"@en ;
+    rdfs:comment "Associates an animal with its usage category."@en ;
+    rdfs:domain ex:Animal ;
+    rdfs:range [ owl:intersectionOf ( 
+        skos:ConceptScheme
+        [ 
+            rdf:type owl:Restriction ;
+            owl:onProperty skos:inScheme ;
+            owl:hasValue ex:Usage
+        ]
+        )] .
+ex:Usage a skos:ConceptScheme ;
+    rdfs:label "Usage"@en ;
+    rdfs:comment "A classification scheme for different usages of animals in various contexts."@en .
+
+ex:pet a skos:Concept ;
+    rdfs:label "Pet"@en ;
+    rdfs:comment "Animals kept for companionship."@en ;
+    skos:inScheme ex:Usage .
+
+:guard a skos:Concept ;
+    rdfs:label "Guard"@en ;
+    rdfs:comment "Animals used for protection or security."@en ;
+    skos:inScheme :Usage .

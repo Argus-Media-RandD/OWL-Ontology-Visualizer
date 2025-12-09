@@ -54,6 +54,26 @@ const OWL_VISUALIZATION_STYLES = [
             'shape': 'ellipse'
         }
     },
+
+    // SKOS Concept nodes (purple hexagons)
+    {
+        selector: 'node[type = "skosConcept"]',
+        style: {
+            'background-color': '#6C5CE7',
+            'color': 'white',
+            'shape': 'hexagon'
+        }
+    },
+
+    // SKOS Concept Scheme nodes (teal rectangles)
+    {
+        selector: 'node[type = "skosConceptScheme"]',
+        style: {
+            'background-color': '#00B894',
+            'color': 'white',
+            'shape': 'round-rectangle'
+        }
+    },
     
     // Ontology declaration nodes (purple rectangles)
     {
@@ -67,7 +87,7 @@ const OWL_VISUALIZATION_STYLES = [
     
     // Default/unknown type nodes (gray rectangles)
     {
-        selector: 'node[type != "class"][type != "property"][type != "individual"][type != "ontology"]',
+        selector: 'node[type != "class"][type != "property"][type != "individual"][type != "ontology"][type != "skosConcept"][type != "skosConceptScheme"]',
         style: {
             'background-color': '#666666',
             'color': 'white',
@@ -139,10 +159,20 @@ const OWL_VISUALIZATION_STYLES = [
             'arrow-scale': 1.4
         }
     },
+
+    // SKOS inScheme relationships (teal)
+    {
+        selector: 'edge[type = "skosInScheme"]',
+        style: {
+            'line-color': '#00B894',
+            'target-arrow-color': '#00B894',
+            'line-style': 'solid'
+        }
+    },
     
     // Default/unknown relationship types (gray)
     {
-        selector: 'edge[type != "subClassOf"][type != "subPropertyOf"][type != "domain"][type != "range"][type != "type"]',
+        selector: 'edge[type != "subClassOf"][type != "subPropertyOf"][type != "domain"][type != "range"][type != "type"][type != "skosInScheme"]',
         style: {
             'line-color': '#888888',
             'target-arrow-color': '#888888'

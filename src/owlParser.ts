@@ -3,7 +3,7 @@ import { Parser, Store, Quad, NamedNode, Term } from 'n3';
 export interface OntologyNode {
     id: string;
     label: string;
-    type: 'class' | 'property' | 'individual' | 'ontology';
+    type: 'class' | 'property' | 'individual' | 'ontology' | 'skosConcept' | 'skosConceptScheme';
     uri?: string;
 }
 
@@ -12,7 +12,7 @@ export interface OntologyEdge {
     source: string;
     target: string;
     label: string;
-    type: 'subClassOf' | 'subPropertyOf' | 'type' | 'domain' | 'range' | 'other';
+    type: 'subClassOf' | 'subPropertyOf' | 'type' | 'domain' | 'range' | 'skosInScheme' | 'other';
 }
 
 export interface OntologyData {
@@ -226,13 +226,12 @@ export class OWLParser {
         // Extract individuals
         const individualQuads = this.store.getQuads(null, 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type', 'http://www.w3.org/2002/07/owl#NamedIndividual', null);
         console.log('OWL Parser: Found', individualQuads.length, 'named individuals');
-        
+
         individualQuads.forEach(quad => {
-            // Skip blank nodes for individuals
             if (quad.subject.termType !== 'NamedNode') {
                 return;
             }
-            
+
             const uri = quad.subject.value;
             const id = this.getLocalName(uri);
             if (!nodes.has(id)) {
@@ -247,7 +246,6 @@ export class OWLParser {
 
         console.log('OWL Parser: After individual extraction, found', Array.from(nodes.values()).filter(n => n.type === 'individual').length, 'individuals');
 
-        // Extract relationships
         let edgeCounter = 0;
 
         // SubClass relationships
@@ -255,14 +253,14 @@ export class OWLParser {
             if (quad.subject.termType !== 'NamedNode' || quad.object.termType !== 'NamedNode') {
                 return;
             }
-            
+
             const sourceId = this.getLocalName(quad.subject.value);
             const targetId = this.getLocalName(quad.object.value);
-            
+
             // Ensure both nodes exist
             this.ensureNode(nodes, sourceId, quad.subject.value, 'class');
             this.ensureNode(nodes, targetId, quad.object.value, 'class');
-            
+
             edges.push({
                 id: `edge_${edgeCounter++}`,
                 source: sourceId,
@@ -278,13 +276,13 @@ export class OWLParser {
             if (quad.subject.termType !== 'NamedNode' || quad.object.termType !== 'NamedNode') {
                 return;
             }
-            
+
             const sourceId = this.getLocalName(quad.subject.value);
             const targetId = this.getLocalName(quad.object.value);
-            
+
             this.ensureNode(nodes, sourceId, quad.subject.value, 'property');
             this.ensureNode(nodes, targetId, quad.object.value, 'property');
-            
+
             edges.push({
                 id: `edge_${edgeCounter++}`,
                 source: sourceId,
@@ -294,18 +292,18 @@ export class OWLParser {
             });
         });
 
-        // Domain and Range relationships
+        // Domain relationships
         domainQuads.forEach(quad => {
             if (quad.subject.termType !== 'NamedNode' || quad.object.termType !== 'NamedNode') {
                 return;
             }
-            
+
             const sourceId = this.getLocalName(quad.subject.value);
             const targetId = this.getLocalName(quad.object.value);
-            
+
             this.ensureNode(nodes, sourceId, quad.subject.value, 'property');
             this.ensureNode(nodes, targetId, quad.object.value, 'class');
-            
+
             edges.push({
                 id: `edge_${edgeCounter++}`,
                 source: sourceId,
@@ -315,25 +313,42 @@ export class OWLParser {
             });
         });
 
+        // Range relationships (with SKOS-aware resolution)
+        const rangeEdgeKeys = new Set<string>();
         rangeQuads.forEach(quad => {
-            if (quad.subject.termType !== 'NamedNode' || quad.object.termType !== 'NamedNode') {
+            if (quad.subject.termType !== 'NamedNode') {
                 return;
             }
-            
+
             const sourceId = this.getLocalName(quad.subject.value);
-            const targetId = this.getLocalName(quad.object.value);
-            
-            this.ensureNode(nodes, sourceId, quad.subject.value, 'property');
-            this.ensureNode(nodes, targetId, quad.object.value, 'class');
-            
-            edges.push({
-                id: `edge_${edgeCounter++}`,
-                source: sourceId,
-                target: targetId,
-                label: 'range',
-                type: 'range'
+            const targets = this.resolveRangeTargets(quad.object);
+
+            if (targets.length === 0 && quad.object.termType === 'NamedNode') {
+                targets.push({ node: quad.object as NamedNode, type: 'class' });
+            }
+
+            targets.forEach(({ node: targetNode, type }) => {
+                const targetId = this.getLocalName(targetNode.value);
+                const edgeKey = `${sourceId}->${targetId}`;
+                if (rangeEdgeKeys.has(edgeKey)) {
+                    return;
+                }
+                rangeEdgeKeys.add(edgeKey);
+
+                this.ensureNode(nodes, sourceId, quad.subject.value, 'property');
+                this.ensureNode(nodes, targetId, targetNode.value, type);
+
+                edges.push({
+                    id: `edge_${edgeCounter++}`,
+                    source: sourceId,
+                    target: targetId,
+                    label: 'range',
+                    type: 'range'
+                });
             });
         });
+
+        edgeCounter = this.extractSkosData(nodes, edges, edgeCounter);
 
         // Add connectors from classes to individual instances via rdf:type relationships
         const classUris = new Set<string>();
@@ -432,7 +447,9 @@ export class OWLParser {
         console.log('OWL Parser: Node breakdown:', {
             classes: Array.from(nodes.values()).filter(n => n.type === 'class').length,
             properties: Array.from(nodes.values()).filter(n => n.type === 'property').length,
-            individuals: Array.from(nodes.values()).filter(n => n.type === 'individual').length
+            individuals: Array.from(nodes.values()).filter(n => n.type === 'individual').length,
+            skosConcepts: Array.from(nodes.values()).filter(n => n.type === 'skosConcept').length,
+            skosConceptSchemes: Array.from(nodes.values()).filter(n => n.type === 'skosConceptScheme').length
         });
 
         return {
@@ -451,6 +468,177 @@ export class OWLParser {
                 uri
             });
         }
+    }
+
+    private resolveRangeTargets(term: Term): Array<{ node: NamedNode; type: OntologyNode['type'] }> {
+        const results: Array<{ node: NamedNode; type: OntologyNode['type'] }> = [];
+
+        if (term.termType === 'NamedNode') {
+            results.push({ node: term, type: 'class' });
+            return results;
+        }
+
+        if (term.termType === 'BlankNode') {
+            const schemes = this.extractConceptSchemesFromRange(term, new Set());
+            schemes.forEach(namedNode => {
+                results.push({ node: namedNode, type: 'skosConceptScheme' });
+            });
+        }
+
+        return results;
+    }
+
+    private extractConceptSchemesFromRange(term: Term, visited: Set<string>): NamedNode[] {
+        const results: NamedNode[] = [];
+
+        if (term.termType !== 'BlankNode') {
+            return results;
+        }
+
+        if (visited.has(term.value)) {
+            return results;
+        }
+        visited.add(term.value);
+
+        const OWL_INTERSECTION = 'http://www.w3.org/2002/07/owl#intersectionOf';
+        const OWL_ON_PROPERTY = 'http://www.w3.org/2002/07/owl#onProperty';
+        const OWL_HAS_VALUE = 'http://www.w3.org/2002/07/owl#hasValue';
+        const SKOS_IN_SCHEME = 'http://www.w3.org/2004/02/skos/core#inScheme';
+
+        const onPropertyQuads = this.store.getQuads(term, OWL_ON_PROPERTY, null, null);
+        const isInSchemeRestriction = onPropertyQuads.some(quad => quad.object.termType === 'NamedNode' && quad.object.value === SKOS_IN_SCHEME);
+        if (isInSchemeRestriction) {
+            const hasValueQuads = this.store.getQuads(term, OWL_HAS_VALUE, null, null);
+            hasValueQuads.forEach(quad => {
+                if (quad.object.termType === 'NamedNode') {
+                    results.push(quad.object);
+                }
+            });
+        }
+
+        const intersectionQuads = this.store.getQuads(term, OWL_INTERSECTION, null, null);
+        intersectionQuads.forEach(quad => {
+            const listElements = this.expandRdfList(quad.object);
+            listElements.forEach(element => {
+                if (element.termType === 'BlankNode') {
+                    results.push(...this.extractConceptSchemesFromRange(element, visited));
+                }
+            });
+        });
+
+        return results;
+    }
+
+    private expandRdfList(listNode: Term): Term[] {
+        const RDF_FIRST = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#first';
+        const RDF_REST = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#rest';
+        const RDF_NIL = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#nil';
+
+        const elements: Term[] = [];
+        const visited = new Set<string>();
+        let current: Term | null = listNode;
+
+        while (current && (current.termType === 'BlankNode' || current.termType === 'NamedNode')) {
+            if (current.termType === 'NamedNode' && current.value === RDF_NIL) {
+                break;
+            }
+
+            if (visited.has(current.value)) {
+                break;
+            }
+            visited.add(current.value);
+
+            const firstQuad: Quad | null = this.store.getQuads(current, RDF_FIRST, null, null)[0] ?? null;
+            if (!firstQuad) {
+                break;
+            }
+            elements.push(firstQuad.object);
+
+            const restQuad: Quad | null = this.store.getQuads(current, RDF_REST, null, null)[0] ?? null;
+            if (!restQuad) {
+                break;
+            }
+
+            if (restQuad.object.termType === 'NamedNode' && restQuad.object.value === RDF_NIL) {
+                break;
+            }
+
+            current = restQuad.object;
+        }
+
+        return elements;
+    }
+
+    private extractSkosData(nodes: Map<string, OntologyNode>, edges: OntologyEdge[], edgeCounter: number): number {
+        const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
+        const SKOS_CONCEPT = 'http://www.w3.org/2004/02/skos/core#Concept';
+        const SKOS_CONCEPT_SCHEME = 'http://www.w3.org/2004/02/skos/core#ConceptScheme';
+        const SKOS_IN_SCHEME = 'http://www.w3.org/2004/02/skos/core#inScheme';
+
+        const conceptSchemeQuads = this.store.getQuads(null, RDF_TYPE, SKOS_CONCEPT_SCHEME, null);
+        conceptSchemeQuads.forEach(quad => {
+            if (quad.subject.termType !== 'NamedNode') {
+                return;
+            }
+
+            const uri = quad.subject.value;
+            const id = this.getLocalName(uri);
+            if (!nodes.has(id)) {
+                nodes.set(id, {
+                    id,
+                    label: this.getLabel(quad.subject) || id,
+                    type: 'skosConceptScheme',
+                    uri
+                });
+            }
+        });
+
+        const conceptQuads = this.store.getQuads(null, RDF_TYPE, SKOS_CONCEPT, null);
+        conceptQuads.forEach(quad => {
+            if (quad.subject.termType !== 'NamedNode') {
+                return;
+            }
+
+            const uri = quad.subject.value;
+            const id = this.getLocalName(uri);
+            if (!nodes.has(id)) {
+                nodes.set(id, {
+                    id,
+                    label: this.getLabel(quad.subject) || id,
+                    type: 'skosConcept',
+                    uri
+                });
+            }
+        });
+
+        const inSchemeQuads = this.store.getQuads(null, SKOS_IN_SCHEME, null, null);
+        const inSchemeEdgeKeys = new Set<string>();
+        inSchemeQuads.forEach(quad => {
+            if (quad.subject.termType !== 'NamedNode' || quad.object.termType !== 'NamedNode') {
+                return;
+            }
+
+            const conceptId = this.getLocalName(quad.subject.value);
+            const schemeId = this.getLocalName(quad.object.value);
+            const edgeKey = `${conceptId}->${schemeId}`;
+            if (inSchemeEdgeKeys.has(edgeKey)) {
+                return;
+            }
+            inSchemeEdgeKeys.add(edgeKey);
+
+            this.ensureNode(nodes, conceptId, quad.subject.value, 'skosConcept');
+            this.ensureNode(nodes, schemeId, quad.object.value, 'skosConceptScheme');
+
+            edges.push({
+                id: `edge_${edgeCounter++}`,
+                source: conceptId,
+                target: schemeId,
+                label: 'inScheme',
+                type: 'skosInScheme'
+            });
+        });
+
+        return edgeCounter;
     }
 
     private getLocalName(uri: string): string {

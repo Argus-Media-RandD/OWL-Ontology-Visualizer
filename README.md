@@ -13,6 +13,7 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 - **👆 Interactive Exploration**: Click on nodes to view detailed information with URI and metadata
 - **📈 Real-Time Statistics**: Live display of ontology metrics (classes, properties, individuals, relationships)
 - **🖱️ Smooth Navigation**: Zoom, pan, and layout controls with view state preservation during updates
+- **📚 SKOS Taxonomy Support**: Visualizes SKOS ConceptSchemes, Concepts, and their property relationships
 
 ## 📁 Supported File Types
 
@@ -66,6 +67,8 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 - **🟢 Classes**: Green rectangles representing OWL classes
 - **🔷 Properties**: Blue diamonds for object/data/annotation properties  
 - **🟠 Individuals**: Orange ellipses for named individuals
+- **🟣 SKOS Concepts**: Purple hexagons for `skos:Concept` resources
+- **🟩 SKOS ConceptSchemes**: Teal rounded rectangles for `skos:ConceptScheme` resources
 
 ### Edge Types
 
@@ -74,6 +77,7 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 - **🔴 domain**: Red arrows from properties to their domain classes
 - **🟠 range**: Orange arrows from properties to their range classes
 - **🟡 instanceOf**: Gold arrows from individuals to their parent classes
+- **🟣 inScheme**: Purple arrows from SKOS concepts to their concept schemes
 
 ### Theme Integration
 
