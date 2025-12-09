@@ -50,6 +50,7 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 - **Reset Zoom**: Return to default zoom level and center
 - **Node Selection**: Click any node to view its details (type, URI, properties)
 - **Mouse Navigation**: Scroll to zoom, drag to pan around the graph
+- **Export SVG**: Prompt for a save location and write the current visualization as an SVG file
 
 ### Auto-Update Features
 

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as os from 'os';
 import { OntologyData } from './owlParser';
 
 export class VisualizationPanel {
@@ -64,7 +65,60 @@ export class VisualizationPanel {
                 this.panel = undefined;
             }, null);
 
+            this.panel.webview.onDidReceiveMessage(async (message) => {
+                if (message?.command === 'exportSvg') {
+                    await this.handleSvgExport(message);
+                }
+            });
+
             this.panel.webview.html = this.getWebviewContent(ontologyData, fileName, isAutoUpdate);
+        }
+    }
+
+    private async handleSvgExport(message: { svgContent: string; fileName?: string; }) {
+        if (!this.panel) {
+            return;
+        }
+
+        const defaultFileName = message.fileName && message.fileName.endsWith('.svg')
+            ? message.fileName
+            : `owl-visualization-${new Date().toISOString().replace(/[:.]/g, '-')}.svg`;
+
+        const defaultUri = vscode.Uri.file(path.join(os.homedir(), defaultFileName));
+
+        try {
+            const targetUri = await vscode.window.showSaveDialog({
+                defaultUri,
+                filters: {
+                    'Scalable Vector Graphics': ['svg']
+                }
+            });
+
+            if (!targetUri) {
+                this.panel.webview.postMessage({
+                    command: 'exportResult',
+                    status: 'cancelled'
+                });
+                return;
+            }
+
+            const data = Buffer.from(message.svgContent, 'utf8');
+            await vscode.workspace.fs.writeFile(targetUri, data);
+
+            this.panel.webview.postMessage({
+                command: 'exportResult',
+                status: 'success',
+                path: targetUri.fsPath
+            });
+        } catch (error) {
+            console.error('Failed to export SVG:', error);
+            this.panel.webview.postMessage({
+                command: 'exportResult',
+                status: 'error',
+                message: error instanceof Error ? error.message : String(error)
+            });
+
+            vscode.window.showErrorMessage(`Failed to export SVG: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -139,6 +193,7 @@ export class VisualizationPanel {
     <script src="https://unpkg.com/cytoscape@3.26.0/dist/cytoscape.min.js"></script>
     <script src="https://unpkg.com/dagre@0.8.5/dist/dagre.min.js"></script>
     <script src="https://unpkg.com/cytoscape-dagre@2.5.0/cytoscape-dagre.js"></script>
+    <script src="https://unpkg.com/cytoscape-svg@0.4.0/cytoscape-svg.js"></script>
     <script src="${stylesUri}"></script>
     <style>
         body {
@@ -286,6 +341,7 @@ export class VisualizationPanel {
                 <button onclick="fitGraph()">Fit to View</button>
                 <button onclick="resetZoom()">Reset Zoom</button>
                 <button onclick="redrawDiagram()">Redraw</button>
+                <button onclick="exportSvg()">Export SVG</button>
             </div>
         </div>
         
@@ -310,6 +366,7 @@ export class VisualizationPanel {
 
     <script>
         (function() {
+            const vscodeApi = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
             try {
                 const ontologyData = JSON.parse('${dataStr}');
                 
@@ -324,6 +381,16 @@ export class VisualizationPanel {
                 }
                 
                 console.log('Creating Cytoscape instance...');
+
+                if (typeof cytoscapeSvg !== 'undefined') {
+                    try {
+                        cytoscape.use(cytoscapeSvg);
+                    } catch (error) {
+                        console.warn('Failed to register cytoscape-svg extension:', error);
+                    }
+                } else {
+                    console.warn('cytoscape-svg extension not detected; SVG export will be disabled');
+                }
                 
                 const cy = cytoscape({
                     container: document.getElementById('cy'),
@@ -517,6 +584,64 @@ export class VisualizationPanel {
                     
                     console.log('Diagram redraw triggered with layout:', currentLayout);
                 };
+
+                window.exportSvg = function() {
+                    if (!window.cy) {
+                        console.error('Cannot export SVG: cytoscape instance not initialized');
+                        return;
+                    }
+
+                    if (typeof window.cy.svg !== 'function') {
+                        console.error('cytoscape-svg extension is unavailable; export cancelled');
+                        const statusText = document.getElementById('statusText');
+                        if (statusText) {
+                            statusText.textContent = 'SVG export unavailable';
+                            setTimeout(() => {
+                                statusText.textContent = 'Auto-updating';
+                            }, 2000);
+                        }
+                        return;
+                    }
+
+                    try {
+                        const svgContent = window.cy.svg({
+                            full: true,
+                            scale: 1,
+                            bg: getComputedStyle(document.body).backgroundColor
+                        });
+
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+                        const statusText = document.getElementById('statusText');
+                        if (statusText) {
+                            statusText.textContent = 'Preparing SVG...';
+                        }
+
+                        if (vscodeApi) {
+                            vscodeApi.postMessage({
+                                command: 'exportSvg',
+                                svgContent,
+                                fileName: 'owl-visualization-' + timestamp + '.svg'
+                            });
+                        } else {
+                            console.warn('VS Code API unavailable in webview; cannot trigger export');
+                            if (statusText) {
+                                statusText.textContent = 'SVG export unavailable';
+                                setTimeout(() => {
+                                    statusText.textContent = 'Auto-updating';
+                                }, 2000);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Failed to export SVG:', error);
+                        const statusText = document.getElementById('statusText');
+                        if (statusText) {
+                            statusText.textContent = 'SVG export failed';
+                            setTimeout(() => {
+                                statusText.textContent = 'Auto-updating';
+                            }, 2000);
+                        }
+                    }
+                };
                 
                 function updateStats() {
                     const stats = ontologyData.nodes.reduce((acc, node) => {
@@ -635,6 +760,28 @@ export class VisualizationPanel {
                     if (message.command === 'updateData') {
                         console.log('Processing updateData command with', message.data.nodes.length, 'nodes');
                         window.updateVisualizationData(message.data);
+                    } else if (message.command === 'exportResult') {
+                        const statusText = document.getElementById('statusText');
+                        if (!statusText) {
+                            return;
+                        }
+
+                        if (message.status === 'success') {
+                            statusText.textContent = 'SVG saved';
+                            setTimeout(() => {
+                                statusText.textContent = 'Auto-updating';
+                            }, 2000);
+                        } else if (message.status === 'cancelled') {
+                            statusText.textContent = 'SVG export cancelled';
+                            setTimeout(() => {
+                                statusText.textContent = 'Auto-updating';
+                            }, 2000);
+                        } else {
+                            statusText.textContent = 'SVG export failed';
+                            setTimeout(() => {
+                                statusText.textContent = 'Auto-updating';
+                            }, 2000);
+                        }
                     }
                 });
                 
