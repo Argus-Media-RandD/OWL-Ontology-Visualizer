@@ -1,0 +1,7 @@
+.gitignore
+.specstory/**
+.github/**
+.vscode/**
+scripts/**
+tests/**
+**/*.test.*
