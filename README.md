@@ -22,20 +22,33 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 
 ## 🚀 Installation
 
+### Development (Extension Host)
+
 1. Clone or download this repository
 2. Open the project folder in VS Code
 3. Run `npm install` to install dependencies
 4. Press `F5` to launch the extension in a new Extension Development Host window
 
+### Local VSIX Install
+
+1. In the project directory run `npm install`
+2. Build once with `npm run compile`
+3. Install VSCE if needed: `npm install -g @vscode/vsce`
+4. Package the extension: `vsce package`
+5. Install the VSIX into VS Code using either the command line `code --install-extension ./owl-ontology-visualizer-<version>.vsix` or the Command Palette action **Extensions: Install from VSIX...**
+    - Alternatively run `npm run deploy` (requires the `code` CLI) to package and install in one step
+
 ## 📖 Usage
 
 ### Opening an Ontology
+
 1. Open an OWL/TTL file in VS Code
 2. Right-click in the editor or on the file in Explorer
 3. Select **"Visualize OWL Ontology"** from the context menu
 4. The visualization opens in a new panel with auto-update enabled
 
 ### Controls & Navigation
+
 - **Layout Selector**: Change between different graph layout algorithms
 - **Fit to View**: Automatically zoom and center the entire graph
 - **Reset Zoom**: Return to default zoom level and center
@@ -43,6 +56,7 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 - **Mouse Navigation**: Scroll to zoom, drag to pan around the graph
 
 ### Auto-Update Features
+
 - **File Watching**: The visualization automatically detects file changes
 - **Live Refresh**: Updates the graph instantly when you save edits
 - **View Preservation**: Maintains your zoom level, pan position, and selected layout
@@ -51,17 +65,21 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 ## 🎨 Visual Elements
 
 ### Node Types
+
 - **🟢 Classes**: Green rectangles representing OWL classes
 - **🔷 Properties**: Blue diamonds for object/data/annotation properties  
 - **🟠 Individuals**: Orange ellipses for named individuals
 
 ### Edge Types
+
 - **🟢 subClassOf**: Green arrows showing class hierarchies
 - **🔷 subPropertyOf**: Blue arrows for property hierarchies
 - **🔴 domain**: Red arrows from properties to their domain classes
 - **🟠 range**: Orange arrows from properties to their range classes
+- **🟡 instanceOf**: Gold arrows from individuals to their parent classes
 
 ### Theme Integration
+
 - **Automatic Colors**: Uses VS Code's current theme colors for all UI elements
 - **Font Matching**: Inherits VS Code's font family, size, and weight settings
 - **Border & Focus**: Selection borders and focus indicators match your theme
@@ -70,7 +88,8 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 ## 🛠️ Development
 
 ### Project Structure
-```
+
+```text
 ├── src/
 │   ├── extension.ts          # Main extension entry point & file watching
 │   ├── owlParser.ts          # OWL/Turtle parsing with N3 library
@@ -82,13 +101,22 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 ```
 
 ### Building
+
 ```bash
 npm install        # Install dependencies
 npm run compile    # Build TypeScript
 npm run watch      # Watch for changes during development
 ```
 
+### Testing
+
+```bash
+npm test           # Compile and run parser tests against sample ontologies
+npm run parser:sample # Compile and print parser output for sample.ttl
+```
+
 ### Customizing Node Styles
+
 Edit `src/styles.js` to customize the appearance of different node types:
 
 ```javascript
@@ -106,6 +134,7 @@ Edit `src/styles.js` to customize the appearance of different node types:
 For detailed styling options, see the [Styling Guide](STYLING.md).
 
 ### Packaging
+
 ```bash
 npm install -g vsce
 vsce package
@@ -114,17 +143,20 @@ vsce package
 ## 🔧 Technical Details
 
 ### Dependencies
+
 - **Cytoscape.js**: Graph visualization and interaction
 - **N3**: Efficient RDF/Turtle parsing and manipulation
 - **VS Code API**: Extension host and webview communication
 
 ### Architecture
+
 - **Extension Host**: Handles file watching, parsing, and VS Code integration
 - **Webview Panel**: Runs Cytoscape.js visualization in isolated context
 - **Message Passing**: Real-time data updates without HTML regeneration
 - **State Preservation**: Maintains view state across auto-updates
 
 ### Performance
+
 - **Efficient Updates**: Only graph data updates during auto-refresh, not entire UI
 - **Memory Management**: Proper cleanup of file watchers and webview resources
 - **Large Ontologies**: Handles 1000+ nodes with smooth interaction
@@ -162,6 +194,7 @@ MIT License - see LICENSE file for details
 ## 📝 Changelog
 
 ### 0.0.1 - Initial Release
+
 - ✅ Interactive OWL/Turtle visualization with Cytoscape.js
 - ✅ Multiple layout algorithms (hierarchical, circular, grid, force-directed)
 - ✅ Real-time auto-updates with file watching

@@ -69,7 +69,10 @@
     "compile": "tsc -p ./",
     "copy-assets": "cp src/styles.js out/styles.js",
     "watch": "tsc -watch -p ./",
-    "package": "npm run compile && npm run copy-assets && vsce package"
+    "package": "npm run compile && npm run copy-assets && vsce package",
+    "deploy": "npm run package && node scripts/install-latest-vsix.js",
+    "parser:sample": "npm run compile && node scripts/run-sample.js",
+    "test": "npm run compile && node --test tests/*.test.js"
     },
     "devDependencies": {
         "@types/n3": "^1.26.0",

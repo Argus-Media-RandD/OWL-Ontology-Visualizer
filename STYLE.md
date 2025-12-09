@@ -5,21 +5,25 @@ The OWL Ontology Visualizer uses separated styling configuration for easy custom
 ## Node Types and Their Default Styles
 
 ### 🟢 Classes (`type = "class"`)
+
 - **Color**: `#22AA22` (bright green)
 - **Shape**: Rectangle
 - **Usage**: Represents OWL classes and RDFS classes
 
 ### 🔷 Properties (`type = "property"`)
+
 - **Color**: `#2288DD` (bright blue)
 - **Shape**: Diamond
 - **Usage**: Object properties, datatype properties, annotation properties
 
 ### 🟠 Individuals (`type = "individual"`)
+
 - **Color**: `#FF8800` (bright orange)
 - **Shape**: Ellipse
 - **Usage**: Named individuals in the ontology
 
 ### 🟣 Ontology (`type = "ontology"`)
+
 - **Color**: `#AA44AA` (purple)
 - **Shape**: Rectangle
 - **Usage**: Ontology declaration nodes
@@ -27,24 +31,29 @@ The OWL Ontology Visualizer uses separated styling configuration for easy custom
 ## Edge Types and Their Default Styles
 
 ### 🟢 SubClass Relationships (`type = "subClassOf"`)
+
 - **Color**: `#22AA22` (green, matching class color)
 - **Usage**: Class hierarchy relationships
 
 ### 🔷 SubProperty Relationships (`type = "subPropertyOf"`)
+
 - **Color**: `#2288DD` (blue, matching property color)
 - **Usage**: Property hierarchy relationships
 
 ### 🔴 Domain Relationships (`type = "domain"`)
+
 - **Color**: `#DD2222` (red)
 - **Usage**: Property domain declarations
 
 ### 🟠 Range Relationships (`type = "range"`)
+
 - **Color**: `#FF8800` (orange)
 - **Usage**: Property range declarations
 
 ## Customizing Styles
 
 ### Changing Node Colors
+
 To change the color of a specific node type, find the corresponding selector and update the `background-color`:
 
 ```javascript
@@ -59,6 +68,7 @@ To change the color of a specific node type, find the corresponding selector and
 ```
 
 ### Changing Node Shapes
+
 Available shapes include: `rectangle`, `roundrectangle`, `ellipse`, `triangle`, `diamond`, `pentagon`, `hexagon`, `octagon`, `star`
 
 ```javascript
@@ -73,6 +83,7 @@ Available shapes include: `rectangle`, `roundrectangle`, `ellipse`, `triangle`, 
 ```
 
 ### Changing Edge Styles
+
 Modify edge appearance by updating the edge selectors:
 
 ```javascript
@@ -87,6 +98,7 @@ Modify edge appearance by updating the edge selectors:
 ```
 
 ### Adding Custom Node Types
+
 To add support for new node types, add a new selector:
 
 ```javascript
@@ -103,6 +115,7 @@ To add support for new node types, add a new selector:
 ## Advanced Styling Options
 
 ### Dynamic Node Sizing
+
 Nodes automatically size based on label length, but you can customize this:
 
 ```javascript
@@ -116,6 +129,7 @@ Nodes automatically size based on label length, but you can customize this:
 ```
 
 ### Text Styling
+
 Customize text appearance:
 
 ```javascript
@@ -127,6 +141,7 @@ Customize text appearance:
 ```
 
 ### Border and Effects
+
 Add borders and visual effects:
 
 ```javascript
@@ -139,18 +154,21 @@ Add borders and visual effects:
 ## Color Scheme Recommendations
 
 ### Professional Theme
+
 - Classes: `#2E7D32` (dark green)
 - Properties: `#1565C0` (dark blue)
 - Individuals: `#F57C00` (dark orange)
 - Edges: Matching but slightly darker
 
 ### High Contrast Theme
+
 - Classes: `#00FF00` (bright green)
 - Properties: `#00CCFF` (cyan)
 - Individuals: `#FFAA00` (bright orange)
 - Background: `#000000` (black)
 
 ### Accessibility Theme
+
 - Use colors that work for colorblind users
 - Ensure sufficient contrast ratios
 - Consider using different shapes to distinguish types
