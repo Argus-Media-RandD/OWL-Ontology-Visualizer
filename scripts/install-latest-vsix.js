@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('node:child_process');
+const { spawnSync } = require('node:child_process');
 
 function findLatestVsix(rootDir) {
     const files = fs.readdirSync(rootDir)
@@ -17,13 +17,47 @@ function findLatestVsix(rootDir) {
 
 function installVsix(vsixPath) {
     console.log(`Installing VSIX: ${vsixPath}`);
-    execSync(`code --install-extension "${vsixPath}"`, {
-        stdio: 'inherit',
+    const result = spawnSync('code', ['--install-extension', vsixPath], {
         env: {
             ...process.env,
             NODE_OPTIONS: ''
-        }
+        },
+        encoding: 'utf8'
     });
+
+    const stdout = result.stdout || '';
+    const stderr = result.stderr || '';
+    const combinedOutput = `${stdout}\n${stderr}`.trim();
+
+    if (result.status === 0) {
+        if (combinedOutput) {
+            console.log(combinedOutput);
+        }
+        console.log('VSIX installation complete.');
+        return;
+    }
+
+    if (combinedOutput.includes('was successfully installed')) {
+        const filtered = combinedOutput
+            .split('\n')
+            .filter(line => line.includes('was successfully installed'))
+            .join('\n');
+        if (filtered) {
+            console.log(filtered);
+        }
+        console.warn('VSIX installation reported success but the VS Code CLI exited unexpectedly (known Electron loader bug). Continuing.');
+        return;
+    }
+
+    if (combinedOutput) {
+        console.error(combinedOutput);
+    }
+
+    if (result.error) {
+        throw result.error;
+    }
+
+    throw new Error(`VSIX installation failed with exit code ${result.status}`);
 }
 
 (function main() {
@@ -37,7 +71,6 @@ function installVsix(vsixPath) {
 
     try {
         installVsix(latest.fullPath);
-        console.log('VSIX installation complete.');
     } catch (error) {
         console.error('Failed to install VSIX:', error.message);
         process.exit(error.status ?? 1);
