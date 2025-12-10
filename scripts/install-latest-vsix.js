@@ -17,7 +17,13 @@ function findLatestVsix(rootDir) {
 
 function installVsix(vsixPath) {
     console.log(`Installing VSIX: ${vsixPath}`);
-    execSync(`code --install-extension "${vsixPath}"`, { stdio: 'inherit' });
+    execSync(`code --install-extension "${vsixPath}"`, {
+        stdio: 'inherit',
+        env: {
+            ...process.env,
+            NODE_OPTIONS: ''
+        }
+    });
 }
 
 (function main() {
