@@ -121,6 +121,16 @@ ex:Whiskers rdf:type ex:Cat , owl:NamedIndividual ;
     ex:weight 4.2 ;
     ex:usedAs ex:pet .
 
+ex:Stripy rdf:type ex:Fish , owl:NamedIndividual ;
+    rdfs:label "Stripy" ;
+    ex:age 0.1 ;
+    ex:weight 0.03 ;
+    ex:livesIn ex:PacificOcean .
+
+ex:PacificOcean rdf:type ex:Ocean , owl:NamedIndividual ;
+    rdfs:label "Pacific Ocean" ;
+    ex:isLivedInBy ex:Stripy .
+
 # Usage taxonomy
 ex:usedAs a owl:ObjectProperty ;
     rdfs:label "used as"@en ;
@@ -144,7 +154,7 @@ ex:pet a skos:Concept ;
     rdfs:comment "Animals kept for companionship."@en ;
     skos:inScheme ex:Usage .
 
-:guard a skos:Concept ;
+ex:guard a skos:Concept ;
     rdfs:label "Guard"@en ;
     rdfs:comment "Animals used for protection or security."@en ;
     skos:inScheme :Usage .
