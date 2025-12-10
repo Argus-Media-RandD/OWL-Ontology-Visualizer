@@ -57,8 +57,8 @@ ex:livesIn rdf:type owl:ObjectProperty ;
     rdfs:range ex:Habitat ;
     rdfs:comment "Relates an animal to its habitat" .
 
-ex:isLivedInBy rdf:type owl:ObjectProperty ;
-    rdfs:label "is lived in by" ;
+ex:hasFauna rdf:type owl:ObjectProperty ;
+    rdfs:label "has fauna" ;
     rdfs:domain ex:Habitat ;
     rdfs:range ex:Animal ;
     owl:inverseOf ex:livesIn ;
@@ -108,28 +108,36 @@ ex:Ocean rdf:type owl:Class ;
     rdfs:subClassOf ex:Habitat ;
     rdfs:comment "Marine habitat" .
 
+ex:HumanDwelling rdf:type owl:Class ;
+    rdfs:label "Human Dwelling" ;
+    rdfs:subClassOf ex:Habitat ;
+    rdfs:comment "Human dwelling habitat" .
+
 # Named Individuals
 ex:Buddy rdf:type ex:Dog , owl:NamedIndividual ;
     rdfs:label "Buddy" ;
     ex:age 5 ;
     ex:weight 25.5 ;
-    ex:usedAs ex:pet, ex:guard .
+    ex:usedAs ex:pet, ex:guard ;
+    ex:livesIn ex:MyHouse .
 
 ex:Whiskers rdf:type ex:Cat , owl:NamedIndividual ;
     rdfs:label "Whiskers" ;
     ex:age 3 ;
     ex:weight 4.2 ;
-    ex:usedAs ex:pet .
+    ex:usedAs ex:pet ;
+    ex:eats ex:Stripy .
 
 ex:Stripy rdf:type ex:Fish , owl:NamedIndividual ;
     rdfs:label "Stripy" ;
     ex:age 0.1 ;
     ex:weight 0.03 ;
-    ex:livesIn ex:PacificOcean .
+    ex:usedAs ex:pet ;
+    ex:livesIn ex:MyHouse .
 
-ex:PacificOcean rdf:type ex:Ocean , owl:NamedIndividual ;
-    rdfs:label "Pacific Ocean" ;
-    ex:isLivedInBy ex:Stripy .
+ex:MyHouse rdf:type ex:HumanDwelling , owl:NamedIndividual ;
+    rdfs:label "My House" ;
+    ex:hasFauna ex:Buddy, ex:Whiskers, ex:Stripy .
 
 # Usage taxonomy
 ex:usedAs a owl:ObjectProperty ;

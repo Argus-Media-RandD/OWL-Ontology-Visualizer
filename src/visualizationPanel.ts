@@ -580,9 +580,72 @@ export class VisualizationPanel {
                         return includedNodes.has(edge.source) && includedNodes.has(edge.target);
                     });
 
-                    const nodes = Array.from(includedNodes.values());
+                    const nodes = Array.from(includedNodes.values()).map(node => ({ ...node }));
                     const nodeIdSet = new Set(nodes.map(node => node.id));
-                    const edges = filteredEdges.filter(edge => nodeIdSet.has(edge.source) && nodeIdSet.has(edge.target));
+                    let edges = filteredEdges
+                        .filter(edge => nodeIdSet.has(edge.source) && nodeIdSet.has(edge.target))
+                        .map(edge => ({ ...edge }));
+
+                    if (mode === 'instance') {
+                        const nodeLookup = new Map(nodes.map(node => [node.id, node]));
+                        const classDecorators = new Map();
+                        const classUsage = new Set();
+                        const retainedEdges = [];
+
+                        edges.forEach(edge => {
+                            if (edge.type === 'type') {
+                                const individualNode = nodeLookup.get(edge.source);
+                                const classNodeOriginal = nodesById.get(edge.target);
+                                if (individualNode && individualNode.type === 'individual' && classNodeOriginal && classNodeOriginal.type === 'class') {
+                                    const decoratorLabel = classNodeOriginal.label || classNodeOriginal.id;
+                                    if (!classDecorators.has(edge.source)) {
+                                        classDecorators.set(edge.source, new Set());
+                                    }
+                                    classDecorators.get(edge.source).add(decoratorLabel);
+                                }
+                                return;
+                            }
+
+                            retainedEdges.push(edge);
+
+                            const sourceNode = nodeLookup.get(edge.source);
+                            const targetNode = nodeLookup.get(edge.target);
+                            if (sourceNode && sourceNode.type === 'class') {
+                                classUsage.add(sourceNode.id);
+                            }
+                            if (targetNode && targetNode.type === 'class') {
+                                classUsage.add(targetNode.id);
+                            }
+                        });
+
+                        edges = retainedEdges;
+
+                        const decoratedNodes = [];
+                        nodes.forEach(node => {
+                            if (node.type === 'class' && !classUsage.has(node.id)) {
+                                return;
+                            }
+
+                            if (node.type === 'individual') {
+                                const decorators = classDecorators.get(node.id);
+                                if (decorators && decorators.size > 0) {
+                                    const sortedDecorators = Array.from(decorators).sort((a, b) => a.localeCompare(b));
+                                    const decoratorText = sortedDecorators.join(', ');
+                                    const baseLabel = node.label || node.id;
+                                    decoratedNodes.push({
+                                        ...node,
+                                        label: '<<' + decoratorText + '>>' + String.fromCharCode(10) + baseLabel
+                                    });
+                                    return;
+                                }
+                            }
+
+                            decoratedNodes.push(node);
+                        });
+
+                        return { nodes: decoratedNodes, edges };
+                    }
+
                     return { nodes, edges };
                 }
 
