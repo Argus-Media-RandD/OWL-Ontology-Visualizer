@@ -57,6 +57,13 @@ ex:livesIn rdf:type owl:ObjectProperty ;
     rdfs:range ex:Habitat ;
     rdfs:comment "Relates an animal to its habitat" .
 
+ex:isLivedInBy rdf:type owl:ObjectProperty ;
+    rdfs:label "is lived in by" ;
+    rdfs:domain ex:Habitat ;
+    rdfs:range ex:Animal ;
+    owl:inverseOf ex:livesIn ;
+    rdfs:comment "Relates a habitat to the animals that live in it" .
+
 ex:eats rdf:type owl:ObjectProperty ;
     rdfs:label "eats" ;
     rdfs:domain ex:Animal ;
@@ -127,6 +134,7 @@ ex:usedAs a owl:ObjectProperty ;
             owl:hasValue ex:Usage
         ]
         )] .
+        
 ex:Usage a skos:ConceptScheme ;
     rdfs:label "Usage"@en ;
     rdfs:comment "A classification scheme for different usages of animals in various contexts."@en .

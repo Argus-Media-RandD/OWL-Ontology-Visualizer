@@ -5,6 +5,7 @@ export interface OntologyNode {
     label: string;
     type: 'class' | 'property' | 'individual' | 'ontology' | 'skosConcept' | 'skosConceptScheme' | 'literal';
     uri?: string;
+    bidirectional?: boolean;
 }
 
 export interface OntologyEdge {
@@ -13,6 +14,7 @@ export interface OntologyEdge {
     target: string;
     label: string;
     type: 'subClassOf' | 'subPropertyOf' | 'type' | 'domain' | 'range' | 'skosInScheme' | 'propertyAssertion' | 'dataAssertion' | 'other';
+    bidirectional?: boolean;
 }
 
 export interface OntologyData {
@@ -79,6 +81,10 @@ export class OWLParser {
         const edges: OntologyEdge[] = [];
         const metadata: OntologyData['metadata'] = {};
         const propertyDetails = new Map<string, { id: string; kind: 'object' | 'data' | 'annotation' | 'unknown' }>();
+        const propertyAliasMap = new Map<string, string>();
+        const propertyUriAliasMap = new Map<string, string>();
+        const canonicalPropertyLabels = new Map<string, Set<string>>();
+        const inversePropertyPairs = new Map<string, { inverseUri: string; canonicalKey: string }>();
 
         // Debug: Log first few quads to see what we have
         const allQuads = this.store.getQuads(null, null, null, null);
@@ -234,6 +240,83 @@ export class OWLParser {
 
         console.log('OWL Parser: After property extraction, found', Array.from(nodes.values()).filter(n => n.type === 'property').length, 'properties');
 
+        const inversePropertyQuads = this.store.getQuads(null, 'http://www.w3.org/2002/07/owl#inverseOf', null, null);
+        const inversePropertyGroups = new Map<string, Set<string>>();
+
+        inversePropertyQuads.forEach(quad => {
+            if (quad.subject.termType !== 'NamedNode' || quad.object.termType !== 'NamedNode') {
+                return;
+            }
+
+            const subjectUri = quad.subject.value;
+            const objectUri = quad.object.value;
+            const canonicalKey = [subjectUri, objectUri].sort().join('|');
+
+            if (!inversePropertyGroups.has(canonicalKey)) {
+                inversePropertyGroups.set(canonicalKey, new Set());
+            }
+
+            inversePropertyGroups.get(canonicalKey)!.add(subjectUri);
+            inversePropertyGroups.get(canonicalKey)!.add(objectUri);
+
+            inversePropertyPairs.set(subjectUri, { inverseUri: objectUri, canonicalKey });
+            inversePropertyPairs.set(objectUri, { inverseUri: subjectUri, canonicalKey });
+        });
+
+        inversePropertyGroups.forEach(uriSet => {
+            const uriList = Array.from(uriSet);
+            if (uriList.length === 0) {
+                return;
+            }
+
+            const canonicalUri = uriList.slice().sort()[0];
+            const canonicalId = this.getLocalName(canonicalUri);
+            const labelSet = new Set<string>();
+
+            uriList.forEach(uri => {
+                const id = this.getLocalName(uri);
+                propertyAliasMap.set(id, canonicalId);
+                propertyUriAliasMap.set(uri, canonicalUri);
+
+                const node = nodes.get(id);
+                if (node) {
+                    labelSet.add(node.label);
+                } else {
+                    labelSet.add(id);
+                }
+            });
+
+            if (labelSet.size > 0) {
+                canonicalPropertyLabels.set(canonicalId, labelSet);
+            }
+        });
+
+        propertyAliasMap.forEach((canonicalId, aliasId) => {
+            if (aliasId === canonicalId) {
+                return;
+            }
+            nodes.delete(aliasId);
+        });
+
+        canonicalPropertyLabels.forEach((labels, canonicalId) => {
+            const canonicalNode = nodes.get(canonicalId);
+            if (canonicalNode) {
+                canonicalNode.label = Array.from(labels).join(' / ');
+                canonicalNode.bidirectional = true;
+            }
+        });
+
+        propertyDetails.forEach((detail, uri) => {
+            const aliasId = detail.id;
+            const canonicalId = propertyAliasMap.get(aliasId);
+            if (canonicalId && canonicalId !== aliasId) {
+                propertyDetails.set(uri, { id: canonicalId, kind: detail.kind });
+            }
+        });
+
+        const resolvePropertyId = (id: string) => propertyAliasMap.get(id) || id;
+        const resolvePropertyUri = (uri: string) => propertyUriAliasMap.get(uri) || uri;
+
         // Extract individuals
         const individualQuads = this.store.getQuads(null, 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type', 'http://www.w3.org/2002/07/owl#NamedIndividual', null);
         console.log('OWL Parser: Found', individualQuads.length, 'named individuals');
@@ -288,11 +371,11 @@ export class OWLParser {
                 return;
             }
 
-            const sourceId = this.getLocalName(quad.subject.value);
-            const targetId = this.getLocalName(quad.object.value);
+            const sourceId = resolvePropertyId(this.getLocalName(quad.subject.value));
+            const targetId = resolvePropertyId(this.getLocalName(quad.object.value));
 
-            this.ensureNode(nodes, sourceId, quad.subject.value, 'property');
-            this.ensureNode(nodes, targetId, quad.object.value, 'property');
+            this.ensureNode(nodes, sourceId, resolvePropertyUri(quad.subject.value), 'property');
+            this.ensureNode(nodes, targetId, resolvePropertyUri(quad.object.value), 'property');
 
             edges.push({
                 id: `edge_${edgeCounter++}`,
@@ -309,10 +392,10 @@ export class OWLParser {
                 return;
             }
 
-            const propertyId = this.getLocalName(quad.subject.value);
+            const propertyId = resolvePropertyId(this.getLocalName(quad.subject.value));
             const domainClassId = this.getLocalName(quad.object.value);
 
-            this.ensureNode(nodes, propertyId, quad.subject.value, 'property');
+            this.ensureNode(nodes, propertyId, resolvePropertyUri(quad.subject.value), 'property');
             this.ensureNode(nodes, domainClassId, quad.object.value, 'class');
 
             edges.push({
@@ -331,7 +414,7 @@ export class OWLParser {
                 return;
             }
 
-            const sourceId = this.getLocalName(quad.subject.value);
+            const sourceId = resolvePropertyId(this.getLocalName(quad.subject.value));
             const targets = this.resolveRangeTargets(quad.object);
 
             if (targets.length === 0 && quad.object.termType === 'NamedNode') {
@@ -346,7 +429,7 @@ export class OWLParser {
                 }
                 rangeEdgeKeys.add(edgeKey);
 
-                this.ensureNode(nodes, sourceId, quad.subject.value, 'property');
+                this.ensureNode(nodes, sourceId, resolvePropertyUri(quad.subject.value), 'property');
                 this.ensureNode(nodes, targetId, targetNode.value, type);
 
                 edges.push({
@@ -467,6 +550,13 @@ export class OWLParser {
 
         const literalNodeCache = new Map<string, string>();
         const assertionEdgeKeys = new Set<string>();
+        const inverseAssertionMap = new Map<string, {
+            id: string;
+            source: string;
+            target: string;
+            labels: Set<string>;
+            bidirectional: boolean;
+        }>();
         let objectAssertionCount = 0;
         let dataAssertionCount = 0;
 
@@ -488,7 +578,7 @@ export class OWLParser {
                     return;
                 }
 
-                const propertyId = this.getLocalName(predicateUri);
+                const propertyId = resolvePropertyId(this.getLocalName(predicateUri));
                 const propertyNode = nodes.get(propertyId);
                 const propertyInfo = propertyDetails.get(predicateUri);
 
@@ -496,7 +586,7 @@ export class OWLParser {
                     return;
                 }
 
-                const edgeLabel = propertyNode?.label || this.getLabel(quad.predicate) || propertyId;
+                const edgeLabel = this.getLabel(quad.predicate) || propertyNode?.label || propertyId;
                 const edgeKeyBase = `${subjectId}|${predicateUri}|${quad.object.value}`;
 
                 if (quad.object.termType === 'NamedNode') {
@@ -519,6 +609,27 @@ export class OWLParser {
                         if (!targetNode.uri) {
                             targetNode.uri = quad.object.value;
                         }
+                    }
+
+                    const inverseInfo = inversePropertyPairs.get(predicateUri);
+                    if (inverseInfo) {
+                        const canonicalKey = inverseInfo.canonicalKey;
+                        const [firstNode, secondNode] = subjectId <= targetId ? [subjectId, targetId] : [targetId, subjectId];
+                        const combinedKey = `${canonicalKey}|${firstNode}|${secondNode}`;
+                        let existing = inverseAssertionMap.get(combinedKey);
+                        if (!existing) {
+                            existing = {
+                                id: `edge_${edgeCounter++}`,
+                                source: firstNode,
+                                target: secondNode,
+                                labels: new Set([edgeLabel]),
+                                bidirectional: true
+                            };
+                            inverseAssertionMap.set(combinedKey, existing);
+                        } else {
+                            existing.labels.add(edgeLabel);
+                        }
+                        return;
                     }
 
                     edges.push({
@@ -559,6 +670,18 @@ export class OWLParser {
                 }
             });
         }
+
+        inverseAssertionMap.forEach(entry => {
+            edges.push({
+                id: entry.id,
+                source: entry.source,
+                target: entry.target,
+                label: Array.from(entry.labels).join(' / '),
+                type: 'propertyAssertion',
+                bidirectional: entry.bidirectional
+            });
+            objectAssertionCount++;
+        });
 
         console.log('OWL Parser: Added', objectAssertionCount, 'object property assertions and', dataAssertionCount, 'data property assertions for instances');
 

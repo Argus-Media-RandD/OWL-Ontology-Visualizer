@@ -602,7 +602,8 @@ export class VisualizationPanel {
                                 source: edge.source,
                                 target: edge.target,
                                 label: edge.label,
-                                type: edge.type
+                                type: edge.type,
+                                bidirectional: edge.bidirectional ? 'true' : undefined
                             }
                         }))
                     ];

@@ -185,6 +185,16 @@ const OWL_VISUALIZATION_STYLES = [
         }
     },
 
+    // Bidirectional object property assertions (double arrows)
+    {
+        selector: 'edge[type = "propertyAssertion"][bidirectional = "true"]',
+        style: {
+            'source-arrow-shape': 'triangle',
+            'source-arrow-color': '#FFB74D',
+            'source-arrow-fill': 'filled'
+        }
+    },
+
     // Data property assertions to literal nodes (light amber)
     {
         selector: 'edge[type = "dataAssertion"]',
