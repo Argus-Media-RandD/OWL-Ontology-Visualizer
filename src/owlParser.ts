@@ -1,9 +1,9 @@
-import { Parser, Store, Quad, NamedNode, Term } from 'n3';
+import { Parser, Store, Quad, NamedNode, Term, Literal } from 'n3';
 
 export interface OntologyNode {
     id: string;
     label: string;
-    type: 'class' | 'property' | 'individual' | 'ontology' | 'skosConcept' | 'skosConceptScheme';
+    type: 'class' | 'property' | 'individual' | 'ontology' | 'skosConcept' | 'skosConceptScheme' | 'literal';
     uri?: string;
 }
 
@@ -12,7 +12,7 @@ export interface OntologyEdge {
     source: string;
     target: string;
     label: string;
-    type: 'subClassOf' | 'subPropertyOf' | 'type' | 'domain' | 'range' | 'skosInScheme' | 'other';
+    type: 'subClassOf' | 'subPropertyOf' | 'type' | 'domain' | 'range' | 'skosInScheme' | 'propertyAssertion' | 'dataAssertion' | 'other';
 }
 
 export interface OntologyData {
@@ -78,6 +78,7 @@ export class OWLParser {
         const nodes = new Map<string, OntologyNode>();
         const edges: OntologyEdge[] = [];
         const metadata: OntologyData['metadata'] = {};
+        const propertyDetails = new Map<string, { id: string; kind: 'object' | 'data' | 'annotation' | 'unknown' }>();
 
         // Debug: Log first few quads to see what we have
         const allQuads = this.store.getQuads(null, null, null, null);
@@ -198,6 +199,12 @@ export class OWLParser {
                         uri
                     });
                 }
+
+                const kind = this.classifyPropertyKind(propertyType);
+                const existingDetail = propertyDetails.get(uri);
+                if (!existingDetail || existingDetail.kind === 'unknown') {
+                    propertyDetails.set(uri, { id, kind });
+                }
             });
         });
 
@@ -217,6 +224,10 @@ export class OWLParser {
                         type: 'property',
                         uri
                     });
+                }
+
+                if (!propertyDetails.has(uri)) {
+                    propertyDetails.set(uri, { id, kind: 'unknown' });
                 }
             }
         });
@@ -443,13 +454,122 @@ export class OWLParser {
 
         console.log('OWL Parser: Added', instanceEdgeCount, 'individual-to-class instance relationships');
 
+        const RDF_TYPE = 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type';
+        const RDFS_LABEL = 'http://www.w3.org/2000/01/rdf-schema#label';
+        const RDFS_COMMENT = 'http://www.w3.org/2000/01/rdf-schema#comment';
+
+        const individualIds = new Set<string>();
+        nodes.forEach(node => {
+            if (node.type === 'individual') {
+                individualIds.add(node.id);
+            }
+        });
+
+        const literalNodeCache = new Map<string, string>();
+        const assertionEdgeKeys = new Set<string>();
+        let objectAssertionCount = 0;
+        let dataAssertionCount = 0;
+
+        if (individualIds.size > 0) {
+            const allQuadsForAssertions = this.store.getQuads(null, null, null, null);
+
+            allQuadsForAssertions.forEach(quad => {
+                if (quad.subject.termType !== 'NamedNode' || quad.predicate.termType !== 'NamedNode') {
+                    return;
+                }
+
+                const subjectId = this.getLocalName(quad.subject.value);
+                if (!individualIds.has(subjectId)) {
+                    return;
+                }
+
+                const predicateUri = quad.predicate.value;
+                if (predicateUri === RDF_TYPE || predicateUri === RDFS_LABEL || predicateUri === RDFS_COMMENT) {
+                    return;
+                }
+
+                const propertyId = this.getLocalName(predicateUri);
+                const propertyNode = nodes.get(propertyId);
+                const propertyInfo = propertyDetails.get(predicateUri);
+
+                if ((!propertyNode || propertyNode.type !== 'property') && !propertyInfo) {
+                    return;
+                }
+
+                const edgeLabel = propertyNode?.label || this.getLabel(quad.predicate) || propertyId;
+                const edgeKeyBase = `${subjectId}|${predicateUri}|${quad.object.value}`;
+
+                if (quad.object.termType === 'NamedNode') {
+                    if (assertionEdgeKeys.has(edgeKeyBase)) {
+                        return;
+                    }
+                    assertionEdgeKeys.add(edgeKeyBase);
+
+                    const targetId = this.getLocalName(quad.object.value);
+                    if (!nodes.has(targetId)) {
+                        const inferredType = this.inferNodeTypeForResource(quad.object as NamedNode);
+                        nodes.set(targetId, {
+                            id: targetId,
+                            label: this.getLabel(quad.object) || targetId,
+                            type: inferredType,
+                            uri: quad.object.value
+                        });
+                    } else {
+                        const targetNode = nodes.get(targetId)!;
+                        if (!targetNode.uri) {
+                            targetNode.uri = quad.object.value;
+                        }
+                    }
+
+                    edges.push({
+                        id: `edge_${edgeCounter++}`,
+                        source: subjectId,
+                        target: targetId,
+                        label: edgeLabel,
+                        type: 'propertyAssertion'
+                    });
+                    objectAssertionCount++;
+                } else if (quad.object.termType === 'Literal') {
+                    if (assertionEdgeKeys.has(edgeKeyBase)) {
+                        return;
+                    }
+                    assertionEdgeKeys.add(edgeKeyBase);
+
+                    const literal = quad.object as Literal;
+                    const literalKey = `${literal.value}@@${literal.datatype ? literal.datatype.value : ''}@@${literal.language || ''}`;
+                    let literalId = literalNodeCache.get(literalKey);
+                    if (!literalId) {
+                        literalId = `literal_${literalNodeCache.size + 1}`;
+                        literalNodeCache.set(literalKey, literalId);
+                        nodes.set(literalId, {
+                            id: literalId,
+                            label: this.formatLiteral(literal),
+                            type: 'literal'
+                        });
+                    }
+
+                    edges.push({
+                        id: `edge_${edgeCounter++}`,
+                        source: subjectId,
+                        target: literalId,
+                        label: edgeLabel,
+                        type: 'dataAssertion'
+                    });
+                    dataAssertionCount++;
+                }
+            });
+        }
+
+        console.log('OWL Parser: Added', objectAssertionCount, 'object property assertions and', dataAssertionCount, 'data property assertions for instances');
+
         console.log('OWL Parser: Final result - nodes:', nodes.size, 'edges:', edges.length);
         console.log('OWL Parser: Node breakdown:', {
             classes: Array.from(nodes.values()).filter(n => n.type === 'class').length,
             properties: Array.from(nodes.values()).filter(n => n.type === 'property').length,
             individuals: Array.from(nodes.values()).filter(n => n.type === 'individual').length,
             skosConcepts: Array.from(nodes.values()).filter(n => n.type === 'skosConcept').length,
-            skosConceptSchemes: Array.from(nodes.values()).filter(n => n.type === 'skosConceptScheme').length
+            skosConceptSchemes: Array.from(nodes.values()).filter(n => n.type === 'skosConceptScheme').length,
+            literals: Array.from(nodes.values()).filter(n => n.type === 'literal').length
         });
 
         return {
@@ -639,6 +759,71 @@ export class OWLParser {
         });
 
         return edgeCounter;
+    }
+
+    private classifyPropertyKind(propertyType: string): 'object' | 'data' | 'annotation' | 'unknown' {
+        if (propertyType === 'http://www.w3.org/2002/07/owl#ObjectProperty') {
+            return 'object';
+        }
+        if (propertyType === 'http://www.w3.org/2002/07/owl#DatatypeProperty') {
+            return 'data';
+        }
+        if (propertyType === 'http://www.w3.org/2002/07/owl#AnnotationProperty') {
+            return 'annotation';
+        }
+        return 'unknown';
+    }
+
+    private inferNodeTypeForResource(resource: NamedNode): OntologyNode['type'] {
+        const typeQuads = this.store.getQuads(resource, 'http://www.w3.org/1999/02/22-rdf-syntax-ns#type', null, null);
+        for (const quad of typeQuads) {
+            const typeUri = quad.object.value;
+            if (typeUri === 'http://www.w3.org/2002/07/owl#Class' || typeUri === 'http://www.w3.org/2000/01/rdf-schema#Class') {
+                return 'class';
+            }
+            if (typeUri === 'http://www.w3.org/2002/07/owl#ObjectProperty' || typeUri === 'http://www.w3.org/2002/07/owl#DatatypeProperty' || typeUri === 'http://www.w3.org/2002/07/owl#AnnotationProperty' || typeUri === 'http://www.w3.org/1999/02/22-rdf-syntax-ns#Property') {
+                return 'property';
+            }
+            if (typeUri === 'http://www.w3.org/2004/02/skos/core#Concept') {
+                return 'skosConcept';
+            }
+            if (typeUri === 'http://www.w3.org/2004/02/skos/core#ConceptScheme') {
+                return 'skosConceptScheme';
+            }
+            if (typeUri === 'http://www.w3.org/2002/07/owl#Ontology') {
+                return 'ontology';
+            }
+            if (typeUri === 'http://www.w3.org/2002/07/owl#NamedIndividual') {
+                return 'individual';
+            }
+        }
+        return 'individual';
+    }
+
+    private formatLiteral(literal: Literal): string {
+        let qualifier: string | null = null;
+
+        if (literal.language) {
+            qualifier = `@${literal.language}`;
+        } else if (literal.datatype && literal.datatype.value) {
+            const datatypeUri = literal.datatype.value;
+            const datatypeLocal = this.getLocalName(datatypeUri);
+            if (datatypeUri.startsWith('http://www.w3.org/2001/XMLSchema#')) {
+                qualifier = datatypeLocal || 'string';
+            } else if (datatypeLocal) {
+                qualifier = datatypeLocal;
+            } else {
+                qualifier = datatypeUri;
+            }
+        } else {
+            qualifier = 'string';
+        }
+
+        if (!qualifier) {
+            return literal.value;
+        }
+
+        return `${literal.value}\n(${qualifier})`;
     }
 
     private getLocalName(uri: string): string {

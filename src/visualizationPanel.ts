@@ -359,6 +359,7 @@ export class VisualizationPanel {
                     <option value="cose">Force-directed (CoSE)</option>
                     <option value="breadthfirst">Breadth-first</option>
                 </select>
+                <button id="viewToggle">Switch to Instance View</button>
                 <button onclick="fitGraph()">Fit to View</button>
                 <button onclick="resetZoom()">Reset Zoom</button>
                 <button onclick="redrawDiagram()">Redraw</button>
@@ -515,11 +516,79 @@ export class VisualizationPanel {
                     }
                 }
 
-                const cy = cytoscape({
-                    container: document.getElementById('cy'),
-                    
-                    elements: [
-                        ...ontologyData.nodes.map(node => ({
+                const layoutSelect = document.getElementById('layoutSelect');
+                if (layoutSelect) {
+                    const klayOption = layoutSelect.querySelector('option[value="klay"]');
+                    if (klayOption) {
+                        klayOption.disabled = !klayAvailable;
+                        klayOption.textContent = klayAvailable ? 'Hierarchical (Klay)' : 'Hierarchical (Klay unavailable)';
+                    }
+                }
+
+                const viewToggleButton = document.getElementById('viewToggle');
+
+                let baseData = ontologyData;
+                let currentViewMode = 'ontology';
+                let activeViewData = null;
+                window.currentLayout = 'dagre';
+
+                function buildViewData(data, mode) {
+                    const nodesById = new Map(data.nodes.map(node => [node.id, node]));
+                    const includedNodes = new Map();
+                    const allowedEdgeTypesOntology = new Set(['subClassOf', 'subPropertyOf', 'type', 'domain', 'range', 'skosInScheme', 'other']);
+                    const allowedEdgeTypesInstance = new Set(['type', 'propertyAssertion', 'dataAssertion', 'skosInScheme']);
+                    const allowedNodeTypesInstance = new Set(['individual', 'class', 'literal', 'skosConcept', 'skosConceptScheme']);
+                    const allowedEdgeTypes = mode === 'ontology' ? allowedEdgeTypesOntology : allowedEdgeTypesInstance;
+                    const allowedNodeTypes = mode === 'ontology' ? null : allowedNodeTypesInstance;
+
+                    data.nodes.forEach(node => {
+                        if (!allowedNodeTypes && node.type === 'literal') {
+                            return;
+                        }
+                        if (allowedNodeTypes && !allowedNodeTypes.has(node.type)) {
+                            return;
+                        }
+                        if (mode === 'instance' && node.type === 'class') {
+                            return;
+                        }
+                        includedNodes.set(node.id, node);
+                    });
+
+                    const ensureNodeIncluded = (id) => {
+                        if (includedNodes.has(id)) {
+                            return;
+                        }
+                        const candidate = nodesById.get(id);
+                        if (!candidate) {
+                            return;
+                        }
+                        if (!allowedNodeTypes && candidate.type === 'literal') {
+                            return;
+                        }
+                        if (allowedNodeTypes && !allowedNodeTypes.has(candidate.type)) {
+                            return;
+                        }
+                        includedNodes.set(id, candidate);
+                    };
+
+                    const filteredEdges = data.edges.filter(edge => {
+                        if (!allowedEdgeTypes.has(edge.type)) {
+                            return false;
+                        }
+                        ensureNodeIncluded(edge.source);
+                        ensureNodeIncluded(edge.target);
+                        return includedNodes.has(edge.source) && includedNodes.has(edge.target);
+                    });
+
+                    const nodes = Array.from(includedNodes.values());
+                    const nodeIdSet = new Set(nodes.map(node => node.id));
+                    const edges = filteredEdges.filter(edge => nodeIdSet.has(edge.source) && nodeIdSet.has(edge.target));
+                    return { nodes, edges };
+                }
+
+                function createElements(viewData) {
+                    return [
+                        ...viewData.nodes.map(node => ({
                             data: {
                                 id: node.id,
                                 label: node.label,
@@ -527,7 +596,7 @@ export class VisualizationPanel {
                                 uri: node.uri
                             }
                         })),
-                        ...ontologyData.edges.map(edge => ({
+                        ...viewData.edges.map(edge => ({
                             data: {
                                 id: edge.id,
                                 source: edge.source,
@@ -536,12 +605,37 @@ export class VisualizationPanel {
                                 type: edge.type
                             }
                         }))
-                    ],
-                    
-                    // Use the external styling configuration
+                    ];
+                }
+
+                function updateStats(dataForStats) {
+                    const stats = dataForStats.nodes.reduce((acc, node) => {
+                        acc[node.type] = (acc[node.type] || 0) + 1;
+                        return acc;
+                    }, {});
+
+                    document.getElementById('classCount').textContent = stats.class || 0;
+                    document.getElementById('propertyCount').textContent = stats.property || 0;
+                    document.getElementById('individualCount').textContent = stats.individual || 0;
+                    document.getElementById('skosConceptCount').textContent = stats.skosConcept || 0;
+                    document.getElementById('skosConceptSchemeCount').textContent = stats.skosConceptScheme || 0;
+                    document.getElementById('edgeCount').textContent = dataForStats.edges.length;
+                }
+
+                function updateViewToggleButton() {
+                    if (!viewToggleButton) {
+                        return;
+                    }
+                    viewToggleButton.textContent = currentViewMode === 'ontology' ? 'Switch to Instance View' : 'Switch to Ontology View';
+                }
+
+                activeViewData = buildViewData(baseData, currentViewMode);
+
+                const cy = cytoscape({
+                    container: document.getElementById('cy'),
+                    elements: createElements(activeViewData),
                     style: OWL_VISUALIZATION_STYLES,
-                    
-                    layout: buildLayoutOptions('dagre', ontologyData.nodes.length)
+                    layout: buildLayoutOptions(window.currentLayout, activeViewData.nodes.length)
                 });
                 
                 console.log('Cytoscape instance created successfully');
@@ -549,7 +643,8 @@ export class VisualizationPanel {
                 console.log('Number of edges in graph:', cy.edges().length);
                 
                 window.cy = cy;
-                window.currentLayout = 'dagre';
+                updateStats(activeViewData);
+                updateViewToggleButton();
                 
                 cy.on('tap', 'node', function(evt) {
                     const node = evt.target;
@@ -575,15 +670,6 @@ export class VisualizationPanel {
                     }
                 });
                 
-                const layoutSelect = document.getElementById('layoutSelect');
-                if (layoutSelect) {
-                    const klayOption = layoutSelect.querySelector('option[value="klay"]');
-                    if (klayOption) {
-                        klayOption.disabled = !klayAvailable;
-                        klayOption.textContent = klayAvailable ? 'Hierarchical (Klay)' : 'Hierarchical (Klay unavailable)';
-                    }
-                }
-
                 if (layoutSelect) {
                     layoutSelect.addEventListener('change', function() {
                         const requestedLayout = this.value;
@@ -592,10 +678,23 @@ export class VisualizationPanel {
                         if (layoutSelect.value !== layoutOptions.name) {
                             layoutSelect.value = layoutOptions.name;
                         }
-                        cy.layout(layoutOptions).run();
+                        const layout = cy.layout(layoutOptions);
+                        layout.run();
+                        layout.once('layoutstop', () => {
+                            setTimeout(() => {
+                                cy.fit();
+                            }, 50);
+                        });
                     });
                     
                     layoutSelect.value = window.currentLayout || 'dagre';
+                }
+
+                if (viewToggleButton) {
+                    viewToggleButton.addEventListener('click', () => {
+                        const nextMode = currentViewMode === 'ontology' ? 'instance' : 'ontology';
+                        applyView(nextMode, { preserveViewport: false });
+                    });
                 }
                 
                 window.fitGraph = function() {
@@ -620,9 +719,7 @@ export class VisualizationPanel {
 
                     const layout = cy.layout(layoutOptions);
                     layout.run();
-                    
-                    // Fit to view after layout completes
-                    layout.on('layoutstop', function() {
+                    layout.once('layoutstop', () => {
                         setTimeout(() => {
                             cy.fit();
                         }, 100);
@@ -688,22 +785,46 @@ export class VisualizationPanel {
                         }
                     }
                 };
-                
-                function updateStats() {
-                    const stats = ontologyData.nodes.reduce((acc, node) => {
-                        acc[node.type] = (acc[node.type] || 0) + 1;
-                        return acc;
-                    }, {});
-                    
-                    document.getElementById('classCount').textContent = stats.class || 0;
-                    document.getElementById('propertyCount').textContent = stats.property || 0;
-                    document.getElementById('individualCount').textContent = stats.individual || 0;
-                    document.getElementById('skosConceptCount').textContent = stats.skosConcept || 0;
-                    document.getElementById('skosConceptSchemeCount').textContent = stats.skosConceptScheme || 0;
-                    document.getElementById('edgeCount').textContent = ontologyData.edges.length;
+
+                function rebuildGraph(options = {}) {
+                    const { preserveViewport = false } = options;
+                    const previousZoom = cy.zoom();
+                    const previousPan = cy.pan();
+
+                    activeViewData = buildViewData(baseData, currentViewMode);
+                    cy.elements().remove();
+                    cy.add(createElements(activeViewData));
+
+                    updateStats(activeViewData);
+
+                    const layoutOptions = buildLayoutOptions(window.currentLayout || 'dagre', cy.nodes().length);
+                    window.currentLayout = layoutOptions.name;
+                    layoutOptions.animate = false;
+                    const layout = cy.layout(layoutOptions);
+                    layout.once('layoutstop', () => {
+                        if (preserveViewport) {
+                            cy.zoom(previousZoom);
+                            cy.pan(previousPan);
+                        } else {
+                            cy.fit();
+                        }
+                    });
+                    layout.run();
+
+                    if (layoutSelect && layoutSelect.value !== window.currentLayout) {
+                        layoutSelect.value = window.currentLayout;
+                    }
                 }
-                
-                updateStats();
+
+                function applyView(mode, options = {}) {
+                    if (currentViewMode === mode && options.preserveViewport) {
+                        rebuildGraph(options);
+                        return;
+                    }
+                    currentViewMode = mode;
+                    updateViewToggleButton();
+                    rebuildGraph(options);
+                }
                 
                 window.showUpdateIndicator = function() {
                     const statusDot = document.getElementById('statusDot');
@@ -721,88 +842,10 @@ export class VisualizationPanel {
                 
                 window.updateVisualizationData = function(newOntologyData) {
                     console.log('Updating visualization with new data:', newOntologyData);
-                    
-                    const currentZoom = cy.zoom();
-                    const currentPan = cy.pan();
-                    
                     window.showUpdateIndicator();
-                    
-                    const nodePositions = {};
-                    cy.nodes().forEach(node => {
-                        const pos = node.position();
-                        nodePositions[node.id()] = { x: pos.x, y: pos.y };
-                    });
-                    
-                    cy.elements().remove();
-                    
-                    const newElements = [
-                        ...newOntologyData.nodes.map(node => ({
-                            data: {
-                                id: node.id,
-                                label: node.label,
-                                type: node.type,
-                                uri: node.uri
-                            }
-                        })),
-                        ...newOntologyData.edges.map(edge => ({
-                            data: {
-                                id: edge.id,
-                                source: edge.source,
-                                target: edge.target,
-                                label: edge.label,
-                                type: edge.type
-                            }
-                        }))
-                    ];
-                    
-                    cy.add(newElements);
-                    
-                    let positionsRestored = 0;
-                    cy.nodes().forEach(node => {
-                        const savedPos = nodePositions[node.id()];
-                        if (savedPos) {
-                            node.position(savedPos);
-                            positionsRestored++;
-                        }
-                    });
-                    
-                    console.log('Restored positions for', positionsRestored, 'nodes');
-                    
-                    const totalNodes = cy.nodes().length;
-                    if (positionsRestored < totalNodes * 0.8) {
-                        console.log('Running layout for new nodes...');
-                        const layoutOptions = buildLayoutOptions(window.currentLayout || 'dagre', totalNodes);
-                        layoutOptions.animate = false;
-                        window.currentLayout = layoutOptions.name;
-                        if (layoutSelect && layoutSelect.value !== window.currentLayout) {
-                            layoutSelect.value = window.currentLayout;
-                        }
-                        const layout = cy.layout(layoutOptions);
-                        layout.run();
-                        
-                        layout.on('layoutstop', function() {
-                            setTimeout(() => {
-                                cy.zoom(currentZoom);
-                                cy.pan(currentPan);
-                            }, 50);
-                        });
-                    } else {
-                        cy.zoom(currentZoom);
-                        cy.pan(currentPan);
-                    }
-                    
-                    const stats = newOntologyData.nodes.reduce((acc, node) => {
-                        acc[node.type] = (acc[node.type] || 0) + 1;
-                        return acc;
-                    }, {});
-                    
-                    document.getElementById('classCount').textContent = stats.class || 0;
-                    document.getElementById('propertyCount').textContent = stats.property || 0;
-                    document.getElementById('individualCount').textContent = stats.individual || 0;
-                    document.getElementById('skosConceptCount').textContent = stats.skosConcept || 0;
-                    document.getElementById('skosConceptSchemeCount').textContent = stats.skosConceptScheme || 0;
-                    document.getElementById('edgeCount').textContent = newOntologyData.edges.length;
-                    
+                    baseData = newOntologyData;
+                    rebuildGraph({ preserveViewport: true });
+                    updateViewToggleButton();
                     console.log('Visualization updated successfully');
                 };
                 

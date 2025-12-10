@@ -74,6 +74,19 @@ const OWL_VISUALIZATION_STYLES = [
             'shape': 'round-rectangle'
         }
     },
+
+    // Literal value nodes (gray rounded rectangles)
+    {
+        selector: 'node[type = "literal"]',
+        style: {
+            'background-color': '#555555',
+            'color': 'white',
+            'shape': 'round-rectangle',
+            'font-size': '10px',
+            'text-wrap': 'wrap',
+            'text-max-width': '100px'
+        }
+    },
     
     // Ontology declaration nodes (purple rectangles)
     {
@@ -157,6 +170,30 @@ const OWL_VISUALIZATION_STYLES = [
             'line-style': 'dashed',
             'width': 3,
             'arrow-scale': 1.4
+        }
+    },
+
+    // Object property assertions between instances (amber)
+    {
+        selector: 'edge[type = "propertyAssertion"]',
+        style: {
+            'line-color': '#FFB74D',
+            'target-arrow-color': '#FFB74D',
+            'line-style': 'solid',
+            'width': 2,
+            'arrow-scale': 1.2
+        }
+    },
+
+    // Data property assertions to literal nodes (light amber)
+    {
+        selector: 'edge[type = "dataAssertion"]',
+        style: {
+            'line-color': '#FFD54F',
+            'target-arrow-color': '#FFD54F',
+            'line-style': 'solid',
+            'width': 2,
+            'arrow-scale': 1.1
         }
     },
 
