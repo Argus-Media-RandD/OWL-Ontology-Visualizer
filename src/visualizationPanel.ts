@@ -12,8 +12,6 @@ export class VisualizationPanel {
     }
 
     public show(ontologyData: OntologyData, fileName: string, forceReveal: boolean = true, isAutoUpdate: boolean = false, shouldSplitRight: boolean = false) {
-        console.log('VisualizationPanel.show called with:', ontologyData);
-        
         // Determine column placement
         let columnToShowIn: vscode.ViewColumn;
         
@@ -68,6 +66,8 @@ export class VisualizationPanel {
             this.panel.webview.onDidReceiveMessage(async (message) => {
                 if (message?.command === 'exportSvg') {
                     await this.handleSvgExport(message);
+                } else if (message?.command === 'exportMermaid') {
+                    await this.handleMermaidExport(message);
                 }
             });
 
@@ -96,7 +96,8 @@ export class VisualizationPanel {
             if (!targetUri) {
                 this.panel.webview.postMessage({
                     command: 'exportResult',
-                    status: 'cancelled'
+                    status: 'cancelled',
+                    format: 'svg'
                 });
                 return;
             }
@@ -107,6 +108,7 @@ export class VisualizationPanel {
             this.panel.webview.postMessage({
                 command: 'exportResult',
                 status: 'success',
+                format: 'svg',
                 path: targetUri.fsPath
             });
         } catch (error) {
@@ -114,10 +116,61 @@ export class VisualizationPanel {
             this.panel.webview.postMessage({
                 command: 'exportResult',
                 status: 'error',
+                format: 'svg',
                 message: error instanceof Error ? error.message : String(error)
             });
 
             vscode.window.showErrorMessage(`Failed to export SVG: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async handleMermaidExport(message: { mermaidContent: string; fileName?: string; }) {
+        if (!this.panel) {
+            return;
+        }
+
+        const defaultFileName = message.fileName && (message.fileName.endsWith('.mmd') || message.fileName.endsWith('.mermaid'))
+            ? message.fileName
+            : `owl-visualization-${new Date().toISOString().replace(/[:.]/g, '-')}.mmd`;
+        const defaultUri = await this.getDefaultDownloadUri(defaultFileName);
+
+        try {
+            const targetUri = await vscode.window.showSaveDialog({
+                defaultUri,
+                filters: {
+                    'Mermaid Definition': ['mmd', 'mermaid'],
+                    'All Files': ['*']
+                }
+            });
+
+            if (!targetUri) {
+                this.panel.webview.postMessage({
+                    command: 'exportResult',
+                    status: 'cancelled',
+                    format: 'mermaid'
+                });
+                return;
+            }
+
+            const data = Buffer.from(message.mermaidContent ?? '', 'utf8');
+            await vscode.workspace.fs.writeFile(targetUri, data);
+
+            this.panel.webview.postMessage({
+                command: 'exportResult',
+                status: 'success',
+                format: 'mermaid',
+                path: targetUri.fsPath
+            });
+        } catch (error) {
+            console.error('Failed to export Mermaid definition:', error);
+            this.panel.webview.postMessage({
+                command: 'exportResult',
+                status: 'error',
+                format: 'mermaid',
+                message: error instanceof Error ? error.message : String(error)
+            });
+
+            vscode.window.showErrorMessage(`Failed to export Mermaid definition: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
 
@@ -141,9 +194,7 @@ export class VisualizationPanel {
     }
 
     private updateVisualizationData(ontologyData: OntologyData) {
-        // Send a message to the webview to update the data
         if (this.panel) {
-            console.log('Sending updateData message to webview with', ontologyData.nodes.length, 'nodes');
             this.panel.webview.postMessage({
                 command: 'updateData',
                 data: ontologyData
@@ -200,9 +251,9 @@ export class VisualizationPanel {
         );
                         
         // Escape the data to prevent template literal issues
-        const dataStr = JSON.stringify(ontologyData).replace(/\\/g, '\\\\').replace(/`/g, '\\`').replace(/\${/g, '\\${');
+        const dataStr = Buffer.from(JSON.stringify(ontologyData), 'utf8').toString('base64');
         
-        return `<!DOCTYPE html>
+        const htmlContent = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -251,12 +302,18 @@ export class VisualizationPanel {
             align-items: center;
         }
         
-        #layoutSelect {
+        #layoutSelect, #exportFormat {
             background-color: #3C3C3C;
             color: #CCCCCC;
             border: 1px solid #3C3C3C;
             border-radius: 3px;
             padding: 4px 8px;
+        }
+
+        .export-controls {
+            display: flex;
+            gap: 6px;
+            align-items: center;
         }
         
         button {
@@ -363,7 +420,13 @@ export class VisualizationPanel {
                 <button onclick="fitGraph()">Fit to View</button>
                 <button onclick="resetZoom()">Reset Zoom</button>
                 <button onclick="redrawDiagram()">Redraw</button>
-                <button onclick="exportSvg()">Export SVG</button>
+                <div class="export-controls">
+                    <select id="exportFormat">
+                        <option value="svg">Export as SVG</option>
+                        <option value="mermaid">Export as Mermaid</option>
+                    </select>
+                    <button id="exportButton">Export</button>
+                </div>
             </div>
         </div>
         
@@ -391,21 +454,59 @@ export class VisualizationPanel {
     <script>
         (function() {
             const vscodeApi = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
+            
+            // Enhanced error display function
+            function showError(message, error) {
+                console.error(message, error);
+                const cyContainer = document.getElementById('cy');
+                if (cyContainer) {
+                    cyContainer.innerHTML = '<div style="padding: 20px; color: #ff6b6b; background: #2d2d2d; border: 2px solid #ff6b6b; border-radius: 5px; margin: 20px; font-family: monospace;"><h3 style="margin-top: 0;">Error</h3><p><strong>' + message + '</strong></p><pre style="background: #1e1e1e; padding: 10px; border-radius: 3px; overflow: auto;">' + (error ? String(error.stack || error) : 'No additional details') + '</pre></div>';
+                }
+            }
+            
             try {
-                const ontologyData = JSON.parse('${dataStr}');
-                
-                console.log('Webview received ontology data:', ontologyData);
-                console.log('Number of nodes:', ontologyData.nodes.length);
-                console.log('Number of edges:', ontologyData.edges.length);
+                const dataStringBase64 = '${dataStr}';
+
+                function decodeBase64ToJsonString(base64Data) {
+                    if (!base64Data) {
+                        throw new Error('No data payload provided');
+                    }
+
+                    try {
+                        const binary = atob(base64Data);
+                        const len = binary.length;
+                        const bytes = new Uint8Array(len);
+                        for (let i = 0; i < len; i++) {
+                            bytes[i] = binary.charCodeAt(i);
+                        }
+                        if (typeof TextDecoder !== 'undefined') {
+                            return new TextDecoder('utf-8').decode(bytes);
+                        }
+
+                        // Fallback if TextDecoder is unavailable
+                        let result = '';
+                        const chunkSize = 0x8000;
+                        for (let i = 0; i < len; i += chunkSize) {
+                            result += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+                        }
+                        return decodeURIComponent(escape(result));
+                    } catch (error) {
+                        console.error('Failed to decode base64 payload', error);
+                        showError('Failed to decode ontology data payload', error);
+                        throw error;
+                    }
+                }
+
+                const dataString = decodeBase64ToJsonString(dataStringBase64);
+
+                const ontologyData = JSON.parse(dataString);
+                console.log('Ontology payload decoded (nodes: ' + ontologyData.nodes.length + ', edges: ' + ontologyData.edges.length + ')');
                 
                 if (typeof cytoscape === 'undefined') {
-                    console.error('Cytoscape library not loaded');
-                    document.getElementById('cy').innerHTML = '<div style="padding: 20px; color: red;">Error: Cytoscape library failed to load</div>';
+                    showError('Cytoscape library not loaded', new Error('cytoscape global is undefined'));
                     return;
                 }
                 
-                console.log('Creating Cytoscape instance...');
-
                 let dagreAvailable = false;
                 let klayAvailable = false;
 
@@ -526,6 +627,8 @@ export class VisualizationPanel {
                 }
 
                 const viewToggleButton = document.getElementById('viewToggle');
+                const exportButton = document.getElementById('exportButton');
+                const exportFormatSelect = document.getElementById('exportFormat');
 
                 let baseData = ontologyData;
                 let currentViewMode = 'ontology';
@@ -695,16 +798,19 @@ export class VisualizationPanel {
 
                 activeViewData = buildViewData(baseData, currentViewMode);
 
+                const elements = createElements(activeViewData);
+                if (typeof OWL_VISUALIZATION_STYLES === 'undefined') {
+                    showError('OWL_VISUALIZATION_STYLES not loaded', new Error('styles.js may not be loaded'));
+                    return;
+                }
+                const layoutOptions = buildLayoutOptions(window.currentLayout, activeViewData.nodes.length);
                 const cy = cytoscape({
                     container: document.getElementById('cy'),
-                    elements: createElements(activeViewData),
+                    elements: elements,
                     style: OWL_VISUALIZATION_STYLES,
-                    layout: buildLayoutOptions(window.currentLayout, activeViewData.nodes.length)
+                    layout: layoutOptions
                 });
-                
-                console.log('Cytoscape instance created successfully');
-                console.log('Number of nodes in graph:', cy.nodes().length);
-                console.log('Number of edges in graph:', cy.edges().length);
+                console.log('Cytoscape initialized (nodes: ' + cy.nodes().length + ', edges: ' + cy.edges().length + ', layout: ' + layoutOptions.name + ')');
                 
                 window.cy = cy;
                 updateStats(activeViewData);
@@ -754,6 +860,17 @@ export class VisualizationPanel {
                     layoutSelect.value = window.currentLayout || 'dagre';
                 }
 
+                if (exportButton && exportFormatSelect) {
+                    exportButton.addEventListener('click', () => {
+                        const format = exportFormatSelect.value;
+                        if (format === 'mermaid') {
+                            window.exportMermaid();
+                        } else {
+                            window.exportSvg();
+                        }
+                    });
+                }
+
                 if (viewToggleButton) {
                     viewToggleButton.addEventListener('click', () => {
                         const nextMode = currentViewMode === 'ontology' ? 'instance' : 'ontology';
@@ -771,8 +888,6 @@ export class VisualizationPanel {
                 };
                 
                 window.redrawDiagram = function() {
-                    console.log('Forcing diagram redraw...');
-                    
                     // Get current layout
                     const currentLayout = window.currentLayout || 'dagre';
                     const layoutOptions = buildLayoutOptions(currentLayout, cy.nodes().length);
@@ -788,9 +903,122 @@ export class VisualizationPanel {
                             cy.fit();
                         }, 100);
                     });
-                    
-                    console.log('Diagram redraw triggered with layout:', window.currentLayout);
+                    console.log('Diagram redraw triggered with layout: ' + window.currentLayout);
                 };
+
+                function sanitizeMermaidText(text, options = {}) {
+                    const allowLineBreaks = Boolean(options && options.allowLineBreaks);
+                    let value = String(text ?? '').trim();
+                    if (allowLineBreaks) {
+                        value = value.replace(/\\r?\\n+/g, '<br/>');
+                    } else {
+                        value = value.replace(/\\r?\\n+/g, ' ');
+                    }
+                    const backtickChar = String.fromCharCode(96);
+                    value = value.split(backtickChar).join("'");
+                    value = value.replace(/'/g, '&#39;');
+                    value = value.replace(/"/g, '&quot;');
+                    value = value.replace(/\\\|/g, '/');
+                    return value;
+                }
+
+                function sanitizeMermaidIdentifier(text, fallback) {
+                    const primary = String(text ?? '').trim();
+                    const secondary = String(fallback ?? '').trim() || 'node';
+                    const base = primary || secondary;
+                    let identifier = typeof base.normalize === 'function' ? base.normalize('NFKD') : base;
+                    identifier = identifier.replace(/[^A-Za-z0-9_\\s-]/g, '_');
+                    identifier = identifier.replace(/[\\s-]+/g, '_');
+                    identifier = identifier.replace(/_+/g, '_');
+                    identifier = identifier.replace(/^_+/, '').replace(/_+$/, '');
+                    if (!identifier) {
+                        let fallbackIdentifier = secondary.replace(/[^A-Za-z0-9_\\s-]/g, '_');
+                        fallbackIdentifier = fallbackIdentifier.replace(/[\\s-]+/g, '_');
+                        fallbackIdentifier = fallbackIdentifier.replace(/_+/g, '_');
+                        fallbackIdentifier = fallbackIdentifier.replace(/^_+/, '').replace(/_+$/, '');
+                        identifier = fallbackIdentifier || 'node';
+                    }
+                    if (/^[0-9]/.test(identifier)) {
+                        identifier = '_' + identifier;
+                    }
+                    return identifier;
+                }
+
+                function buildMermaidDefinition(viewData) {
+                    if (!viewData) {
+                        return 'graph TD';
+                    }
+
+                    const usedMermaidIds = new Set();
+
+                    const reserveMermaidId = (preferred, fallback) => {
+                        const baseId = sanitizeMermaidIdentifier(preferred, fallback);
+                        let candidate = baseId;
+                        let index = 2;
+                        while (usedMermaidIds.has(candidate)) {
+                            candidate = baseId + '_' + index;
+                            index++;
+                        }
+                        usedMermaidIds.add(candidate);
+                        return candidate;
+                    };
+
+                    const lines = [
+                        '%% Auto-generated by OWL Ontology Visualizer',
+                        'graph TD'
+                    ];
+
+                    const nodeAliasMap = new Map();
+
+                    viewData.nodes.forEach((node, index) => {
+                        const preferredLabel = node.label || node.id;
+                        const alias = reserveMermaidId(preferredLabel, node.id || ('node_' + index));
+                        nodeAliasMap.set(node.id, alias);
+
+                        const labelParts = [];
+                        if (node.label) {
+                            labelParts.push(sanitizeMermaidText(node.label, { allowLineBreaks: true }));
+                        } else {
+                            labelParts.push(sanitizeMermaidText(node.id, { allowLineBreaks: true }));
+                        }
+
+                        if (node.type) {
+                            labelParts.push(sanitizeMermaidText(node.type));
+                        }
+
+                        const combinedLabel = labelParts.join('<br/>') || sanitizeMermaidText(node.id);
+                        lines.push('    ' + alias + '["' + combinedLabel + '"]');
+                    });
+
+                    const seenEdges = new Set();
+
+                    viewData.edges.forEach(edge => {
+                        const sourceAlias = nodeAliasMap.get(edge.source);
+                        const targetAlias = nodeAliasMap.get(edge.target);
+                        if (!sourceAlias || !targetAlias) {
+                            return;
+                        }
+
+                        const label = sanitizeMermaidText(edge.label || '');
+                        const connector = label ? '-->|' + label + '|' : '-->';
+                        const edgeLine = sourceAlias + connector + targetAlias;
+
+                        if (!seenEdges.has(edgeLine)) {
+                            lines.push('    ' + edgeLine);
+                            seenEdges.add(edgeLine);
+                        }
+
+                        if (edge.bidirectional === 'true' || edge.bidirectional === true) {
+                            const reverseLine = targetAlias + connector + sourceAlias;
+                            if (!seenEdges.has(reverseLine)) {
+                                lines.push('    ' + reverseLine);
+                                seenEdges.add(reverseLine);
+                            }
+                        }
+                    });
+
+                    return lines.join('\\n');
+                }
 
                 window.exportSvg = function() {
                     if (!window.cy) {
@@ -843,6 +1071,43 @@ export class VisualizationPanel {
                         const statusText = document.getElementById('statusText');
                         if (statusText) {
                             statusText.textContent = 'SVG export failed';
+                            setTimeout(() => {
+                                statusText.textContent = 'Auto-updating';
+                            }, 2000);
+                        }
+                    }
+                };
+
+                window.exportMermaid = function() {
+                    const statusText = document.getElementById('statusText');
+                    if (statusText) {
+                        statusText.textContent = 'Preparing Mermaid...';
+                    }
+
+                    try {
+                        const exportData = activeViewData || buildViewData(baseData, currentViewMode) || baseData;
+                        const mermaidContent = buildMermaidDefinition(exportData);
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+                        if (vscodeApi) {
+                            vscodeApi.postMessage({
+                                command: 'exportMermaid',
+                                mermaidContent,
+                                fileName: 'owl-visualization-' + timestamp + '.mmd'
+                            });
+                        } else {
+                            console.warn('VS Code API unavailable in webview; cannot trigger export');
+                            if (statusText) {
+                                statusText.textContent = 'Mermaid export unavailable';
+                                setTimeout(() => {
+                                    statusText.textContent = 'Auto-updating';
+                                }, 2000);
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Failed to export Mermaid definition:', error);
+                        if (statusText) {
+                            statusText.textContent = 'Mermaid export failed';
                             setTimeout(() => {
                                 statusText.textContent = 'Auto-updating';
                             }, 2000);
@@ -905,19 +1170,18 @@ export class VisualizationPanel {
                 };
                 
                 window.updateVisualizationData = function(newOntologyData) {
-                    console.log('Updating visualization with new data:', newOntologyData);
+                    const nodeCount = Array.isArray(newOntologyData?.nodes) ? newOntologyData.nodes.length : 0;
+                    const edgeCount = Array.isArray(newOntologyData?.edges) ? newOntologyData.edges.length : 0;
+                    console.log('Applying ontology update (nodes: ' + nodeCount + ', edges: ' + edgeCount + ')');
                     window.showUpdateIndicator();
                     baseData = newOntologyData;
                     rebuildGraph({ preserveViewport: true });
                     updateViewToggleButton();
-                    console.log('Visualization updated successfully');
                 };
                 
                 window.addEventListener('message', event => {
-                    console.log('Webview received message:', event.data);
                     const message = event.data;
                     if (message.command === 'updateData') {
-                        console.log('Processing updateData command with', message.data.nodes.length, 'nodes');
                         window.updateVisualizationData(message.data);
                     } else if (message.command === 'exportResult') {
                         const statusText = document.getElementById('statusText');
@@ -925,18 +1189,22 @@ export class VisualizationPanel {
                             return;
                         }
 
+                        const formatLabel = message.format === 'mermaid'
+                            ? 'Mermaid'
+                            : 'SVG';
+
                         if (message.status === 'success') {
-                            statusText.textContent = 'SVG saved';
+                            statusText.textContent = formatLabel + ' saved';
                             setTimeout(() => {
                                 statusText.textContent = 'Auto-updating';
                             }, 2000);
                         } else if (message.status === 'cancelled') {
-                            statusText.textContent = 'SVG export cancelled';
+                            statusText.textContent = formatLabel + ' export cancelled';
                             setTimeout(() => {
                                 statusText.textContent = 'Auto-updating';
                             }, 2000);
                         } else {
-                            statusText.textContent = 'SVG export failed';
+                            statusText.textContent = formatLabel + ' export failed';
                             setTimeout(() => {
                                 statusText.textContent = 'Auto-updating';
                             }, 2000);
@@ -947,7 +1215,6 @@ export class VisualizationPanel {
                 setTimeout(() => {
                     try {
                         cy.fit();
-                        console.log('Graph fitted successfully');
                     } catch (error) {
                         console.error('Error fitting graph:', error);
                     }
@@ -956,12 +1223,17 @@ export class VisualizationPanel {
                 ${isAutoUpdate ? 'window.showUpdateIndicator();' : ''}
                 
             } catch (error) {
-                console.error('Error in webview script:', error);
-                document.getElementById('cy').innerHTML = '<div style="padding: 20px; color: red;">Error: ' + error.message + '</div>';
+                console.error('=== FATAL ERROR in webview script ===');
+                console.error('Error type:', error.constructor.name);
+                console.error('Error message:', error.message);
+                console.error('Error stack:', error.stack);
+                showError('Fatal error in webview script: ' + error.message, error);
             }
         })();
     </script>
 </body>
 </html>`;
+
+        return htmlContent;
     }
 }
