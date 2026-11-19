@@ -25,6 +25,9 @@ A Visual Studio Code extension that provides interactive visualization of OWL (W
 
 ### Development (Extension Host)
 
+Use Node.js 22 or newer for development and packaging. The extension's
+VS Code compatibility remains `^1.75.0`.
+
 1. Clone or download this repository
 2. Open the project folder in VS Code
 3. Run `npm install` to install dependencies
@@ -116,6 +119,9 @@ npm run deploy       # Compile, package, and install the VSIX locally
 npm test           # Compile and run parser tests against sample ontologies
 npm run parser:sample # Compile and print parser output for sample.ttl
 ```
+
+The sample regression checks graph size, instance and SKOS links, typed
+literal assertions, and the merging of inverse habitat assertions.
 
 ### Customizing Node Styles
 

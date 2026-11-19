@@ -21,8 +21,8 @@ test('OWLParser parses sample.ttl without errors', async () => {
     const data = await parser.parse(content);
 
     assert.equal(data.metadata.ontologyURI, 'http://example.org/animals');
-    assert.equal(data.nodes.length, 25);
-    assert.equal(data.edges.length, 25);
+    assert.equal(data.nodes.length, 34);
+    assert.equal(data.edges.length, 44);
     assert.ok(data.nodes.some(node => node.type === 'class'));
     assert.ok(data.nodes.some(node => node.type === 'property'));
     assert.ok(data.nodes.some(node => node.type === 'individual'));
@@ -46,4 +46,23 @@ test('OWLParser parses sample.ttl without errors', async () => {
         data.edges.some(edge => edge.type === 'range' && edge.source === 'usedAs' && edge.target === 'Usage'),
         'Expected usedAs range to point to Usage concept scheme'
     );
+
+    const buddyAge = data.edges.find(
+        edge => edge.type === 'dataAssertion' && edge.source === 'Buddy' && edge.label === 'age'
+    );
+    assert.ok(buddyAge, 'Expected Buddy to have an age assertion');
+    assert.ok(
+        data.nodes.some(node => node.id === buddyAge.target && node.type === 'literal' && node.label === '5\n(integer)'),
+        'Expected Buddy age assertion to reference the typed literal 5'
+    );
+
+    const buddyHabitat = data.edges.filter(
+        edge => edge.type === 'propertyAssertion' && (
+            (edge.source === 'Buddy' && edge.target === 'MyHouse') ||
+            (edge.source === 'MyHouse' && edge.target === 'Buddy')
+        )
+    );
+    assert.equal(buddyHabitat.length, 1, 'Expected inverse habitat assertions to share one edge');
+    assert.equal(buddyHabitat[0].bidirectional, true);
+    assert.deepEqual(new Set(buddyHabitat[0].label.split(' / ')), new Set(['lives in', 'has fauna']));
 });
